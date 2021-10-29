@@ -36,6 +36,15 @@
  *----------------------------------------------------------------------
  */
 
+// create trunk config, embed it in splinter_config
+
+struct splinterdb_config {
+   trunk_config trunk_config
+
+}
+
+
+// rename as trunk_config
 typedef struct splinter_config {
    // robj: if these are redundant, maybe delete them?
    uint64               page_size;               // must match the cache/fs page_size
@@ -48,12 +57,17 @@ typedef struct splinter_config {
    uint64               max_branches_per_node;
    uint64               hard_max_branches_per_node;
    uint64               target_leaf_tuples;      // make leaves this big when splitting
+
+
+   // maybe lift?
    uint64               reclaim_threshold;       // start reclaming space when free space < threshold
 
    // stats
    bool                 use_stats;
 
+   // lift
    memtable_config      mt_cfg;
+
    btree_config         btree_cfg;
    routing_config       index_filter_cfg;
    routing_config       leaf_filter_cfg;
@@ -73,16 +87,23 @@ typedef struct splinter_stats {
    platform_histo_handle update_latency_histo;
    platform_histo_handle delete_latency_histo;
 
+// trunk
    uint64 flush_wait_time_ns[SPLINTER_MAX_HEIGHT];
    uint64 flush_time_ns[SPLINTER_MAX_HEIGHT];
    uint64 flush_time_max_ns[SPLINTER_MAX_HEIGHT];
    uint64 full_flushes[SPLINTER_MAX_HEIGHT];
    uint64 count_flushes[SPLINTER_MAX_HEIGHT];
+
+
+// maybe lift this?
    uint64 memtable_flushes;
    uint64 memtable_flush_time_ns;
    uint64 memtable_flush_time_max_ns;
    uint64 memtable_flush_wait_time_ns;
    uint64 memtable_flush_root_full;
+
+// trunk below this
+
    uint64 root_full_flushes;
    uint64 root_count_flushes;
    uint64 root_flush_time_ns;
@@ -172,12 +193,12 @@ struct splinter_handle {
    // allocator/cache/log
    allocator         *al;
    cache             *cc;
-   log_handle        *log;
+   log_handle        *log; // lifted?
    mini_allocator     mini;
 
    // memtables
-   allocator_root_id        id;
-   memtable_context  *mt_ctxt;
+   allocator_root_id        id; // used???
+   memtable_context  *mt_ctxt; // lifted?
 
    // task system
    task_system       *ts;  // ALEX: currently not durable
@@ -186,7 +207,7 @@ struct splinter_handle {
    splinter_stats    *stats;
 
    // Link inside the splinter list
-   List_Links         links;
+   List_Links         links;  // dead code?
 
    /*
     * Per thread task and per splinter table task counter. Used to decide when
@@ -198,11 +219,12 @@ struct splinter_handle {
    } PLATFORM_CACHELINE_ALIGNED task_countup[MAX_THREADS];
 
    // space rec queue
-   srq                srq;
+   srq                srq;  // lifted?
 
    splinter_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };
 
+// don't touch this for now
 typedef struct splinter_range_iterator {
    iterator         super;
    splinter_handle *spl;

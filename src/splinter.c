@@ -354,7 +354,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *-----------------------------------------------------------------------------
  */
 
-// a super block
+// a super block: bigger than just "Trunk"
 typedef struct splinter_super_block {
    uint64      root_addr;
    uint64      meta_tail;
@@ -2819,6 +2819,7 @@ splinter_btree_lookup(splinter_handle *spl,
  *-----------------------------------------------------------------------------
  */
 
+// probably only trunk?
 static cache_async_result
 splinter_btree_lookup_async(splinter_handle     *spl,      // IN
                             splinter_branch     *branch,   // IN
@@ -2855,8 +2856,8 @@ splinter_btree_lookup_async(splinter_handle     *spl,      // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * Memtable Functions
- *
+ * Memtable Functions: goal: lift out all the memtable references, get rid of header include
+ * . LIFT THIS
  *-----------------------------------------------------------------------------
  */
 
@@ -3467,7 +3468,7 @@ splinter_memtable_lookup(splinter_handle *spl,
 /*
  *-----------------------------------------------------------------------------
  *
- * filter functions
+ * filter functions, trunk-related
  *
  *-----------------------------------------------------------------------------
  */
@@ -3534,6 +3535,7 @@ splinter_dec_filter(splinter_handle *spl,
    routing_filter_zap(cc, filter);
 }
 
+// hope this is trunk?
 static inline page_handle *
 splinter_node_get_maybe_descend(splinter_handle             *spl,
                                 splinter_compact_bundle_req *req)
@@ -3896,7 +3898,7 @@ splinter_filter_lookup_async(splinter_handle    *spl,
 /*
  *-----------------------------------------------------------------------------
  *
- * Flush Functions
+ * Flush Functions: trunk-related
  *
  *-----------------------------------------------------------------------------
  */
@@ -4288,7 +4290,7 @@ splinter_branch_iterator_deinit(splinter_handle *spl,
 /*
  *-----------------------------------------------------------------------------
  *
- * btree skiperator
+ * btree skiperator: trunk
  *
  *       an iterator which can skip over tuples in branches which aren't live
  *
@@ -4421,7 +4423,7 @@ splinter_btree_skiperator_deinit(splinter_handle           *spl,
 /*
  *-----------------------------------------------------------------------------
  *
- * Compaction Functions
+ * Compaction Functions: trunk (rename "btree" to "branch" here?)
  *
  *-----------------------------------------------------------------------------
  */
@@ -4806,7 +4808,7 @@ out:
    splinter_close_log_stream();
 }
 
-
+//trunk
 bool
 splinter_flush_node(splinter_handle *spl, uint64 addr, void *arg)
 {
@@ -4881,7 +4883,7 @@ splinter_force_flush(splinter_handle *spl)
 /*
  *-----------------------------------------------------------------------------
  *
- * splitting functions
+ * splitting functions: trunk
  *
  *-----------------------------------------------------------------------------
  */
@@ -5441,7 +5443,8 @@ splinter_split_root(splinter_handle *spl,
 /*
  *-----------------------------------------------------------------------------
  *
- * range functions and iterators
+ * range functions and iterators: 
+ * needs to be in the higher-layer for now, but maybe some future refactoring can break it up?
  *
  *      splinter_node_iterator
  *      splinter_iterator
@@ -5733,7 +5736,7 @@ splinter_range_iterator_deinit(splinter_range_iterator *range_itor)
    }
 }
 
-/*
+/* TRUNK
  * Given a node addr and pivot generation, find the pivot with that generation
  * among the node and its split descendents
  *
@@ -5817,7 +5820,7 @@ splinter_compact_leaf(splinter_handle *spl,
 /*
  *-----------------------------------------------------------------------------
  *
- * space reclamation
+ * space reclamation: not being exercised right now, by anything
  *
  *-----------------------------------------------------------------------------
  */
@@ -5904,7 +5907,7 @@ splinter_maybe_reclaim_space(splinter_handle *spl)
 /*
  *-----------------------------------------------------------------------------
  *
- * main API functions
+ * main API functions: LIFT THIS UP
  *
  *      insert
  *      lookup
@@ -5961,6 +5964,7 @@ out:
    return rc;
 }
 
+// TRUNK
 bool
 splinter_filter_lookup(splinter_handle *spl,
                        page_handle     *node,
@@ -6007,6 +6011,7 @@ splinter_filter_lookup(splinter_handle *spl,
    return TRUE;
 }
 
+// TRUNK
 bool
 splinter_compacted_subbundle_lookup(splinter_handle    *spl,
                                     page_handle        *node,
@@ -6119,7 +6124,11 @@ splinter_pivot_lookup(splinter_handle     *spl,
    return splinter_filter_lookup(spl, node, &pdata->filter, cfg,
          pdata->start_branch, key, data, found);
 }
+// ^^^ TRUNK ABOVE HERE
 
+
+// LIFT 
+// ALSO: there's a known deadlock if you use this with foreground compactions
 // If any change is made in here, please make similar change in splinter_lookup_async
 platform_status
 splinter_lookup(splinter_handle *spl,
@@ -6210,6 +6219,9 @@ found_final_answer_early:
    return STATUS_OK;
 }
 
+// LIFT ASYNC CODE
+// or delete it??
+// a bit exercised, used by default in splinter_test
 /*
  * splinter_async_set_state sets the state of the async splinter
  * lookup state machine.
@@ -6745,7 +6757,7 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
    return res;
 }
 
-
+// LIFT this
 platform_status
 splinter_range(splinter_handle *spl,
                char            *start_key,
@@ -6785,7 +6797,7 @@ destroy_range_itor:
 /*
  *-----------------------------------------------------------------------------
  *
- * create/destroy
+ * create/destroy: LIFT
  * XXX Fix this api to return platform_status
  *
  *-----------------------------------------------------------------------------
@@ -6979,7 +6991,7 @@ splinter_mount(splinter_config  *cfg,
    // FIXME: [yfogel 2020-03-30] proper error handling for this entire function
    return spl;
 }
-
+// LIFT
 void
 splinter_deinit(splinter_handle *spl)
 {
@@ -7010,6 +7022,7 @@ splinter_deinit(splinter_handle *spl)
    cache_flush(spl->cc);
 }
 
+// TRUNK
 bool
 splinter_node_destroy(splinter_handle *spl,
                       uint64           addr,
@@ -7052,7 +7065,7 @@ splinter_node_destroy(splinter_handle *spl,
    splinter_node_unget(spl, &node);
    return TRUE;
 }
-
+// LIFT
 // destroy a database such that it cannot be re-opened later
 void
 splinter_destroy(splinter_handle *spl)
@@ -7108,7 +7121,7 @@ splinter_dismount(splinter_handle *spl)
 /*
  *-----------------------------------------------------------------------------
  *
- * splinter_perform_task
+ * splinter_perform_task: lift
  *
  *      do a batch of tasks
  *
@@ -7140,7 +7153,7 @@ splinter_perform_tasks(splinter_handle *spl)
  *    5. subbundles are coherent (branches are contiguous and non-overlapping)
  *    6. start_frac (resp end_branch) is first (resp last) branch in a subbundle
  */
-
+// TRUNK
 bool
 splinter_verify_node(splinter_handle *spl,
                      page_handle     *node)
@@ -7331,6 +7344,7 @@ out:
  * 2. coherent pivots with children's min/max keys
  */
 
+// TRUNK
 bool
 splinter_verify_node_with_neighbors(splinter_handle *spl,
                                     page_handle     *node)
@@ -7406,6 +7420,7 @@ out:
  * wrapper for splinter_for_each_node
  */
 
+// TRUNK
 bool
 splinter_verify_node_and_neighbors(splinter_handle *spl,
                                    uint64           addr,
@@ -7426,7 +7441,7 @@ out:
 /*
  * verify_tree verifies each node with itself and its neighbors
  */
-
+// LIFT
 bool
 splinter_verify_tree(splinter_handle *spl)
 {
@@ -7436,7 +7451,7 @@ splinter_verify_tree(splinter_handle *spl)
 /*
  * Returns the amount of space used by each level of the tree
  */
-
+// TRUNK
 bool
 splinter_node_space_use(splinter_handle *spl,
                         uint64           addr,
@@ -7482,6 +7497,7 @@ splinter_node_space_use(splinter_handle *spl,
    return TRUE;
 }
 
+// LIFT
 void
 splinter_print_space_use(splinter_handle *spl)
 {
@@ -7495,6 +7511,7 @@ splinter_print_space_use(splinter_handle *spl)
    platform_log("\n");
 }
 
+// TRUNK
 void
 splinter_print_locked_node(splinter_handle        *spl,
                            page_handle            *node,
@@ -7593,6 +7610,7 @@ splinter_print_locked_node(splinter_handle        *spl,
    platform_log_stream("\n");
 }
 
+// TRUNK
 void
 splinter_print_node(splinter_handle       *spl,
                     uint64                 addr,
@@ -7610,7 +7628,7 @@ splinter_print_node(splinter_handle       *spl,
    splinter_print_locked_node(spl, node, stream);
    cache_unget(spl->cc, node);
 }
-
+// trunk?
 void
 splinter_print_subtree(splinter_handle        *spl,
                        uint64                  addr,
@@ -7629,6 +7647,7 @@ splinter_print_subtree(splinter_handle        *spl,
    cache_unget(spl->cc, node);
 }
 
+// lift?
 void
 splinter_print_memtable(splinter_handle        *spl,
                         platform_stream_handle  stream)
@@ -7651,6 +7670,7 @@ splinter_print_memtable(splinter_handle        *spl,
    platform_log_stream("\n");
 }
 
+// lift
 void
 splinter_print(splinter_handle *spl)
 {
@@ -7660,6 +7680,7 @@ splinter_print(splinter_handle *spl)
    platform_close_log_stream(PLATFORM_DEFAULT_LOG_HANDLE);
 }
 
+// lift
 void
 splinter_print_insertion_stats(splinter_handle *spl)
 {
@@ -7963,7 +7984,8 @@ splinter_print_insertion_stats(splinter_handle *spl)
    platform_free(spl->heap_id, global);
 }
 
-
+// -DSPLINTER_LOG to turn this stuff on
+//  lift
 void
 splinter_print_lookup_stats(splinter_handle *spl)
 {
@@ -8050,7 +8072,7 @@ splinter_print_lookup_stats(splinter_handle *spl)
    platform_free(spl->heap_id, global);
 }
 
-
+// lift
 void
 splinter_print_lookup(splinter_handle *spl,
                       char            *key)
@@ -8158,6 +8180,7 @@ splinter_print_lookup(splinter_handle *spl,
    splinter_node_unget(spl, &node);
 }
 
+// lift
 void
 splinter_reset_stats(splinter_handle *spl)
 {
@@ -8166,6 +8189,7 @@ splinter_reset_stats(splinter_handle *spl)
    }
 }
 
+// trunk
 uint64
 splinter_branch_count_num_tuples(splinter_handle *spl,
                                  page_handle     *node,
@@ -8182,6 +8206,8 @@ splinter_branch_count_num_tuples(splinter_handle *spl,
    return num_tuples;
 }
 
+// trunk
+// anything that takes a node or addr is probably trunk
 uint64
 splinter_branch_extent_count(splinter_handle *spl,
                              page_handle     *node,
@@ -8191,6 +8217,7 @@ splinter_branch_extent_count(splinter_handle *spl,
    return btree_extent_count(spl->cc, &spl->cfg.btree_cfg, branch->root_addr);
 }
 
+// trunk
 bool
 splinter_node_print_branches(splinter_handle *spl,
                              uint64           addr,
@@ -8235,12 +8262,14 @@ splinter_node_print_branches(splinter_handle *spl,
    return TRUE;
 }
 
+// lift
 void
 splinter_print_branches(splinter_handle *spl)
 {
    splinter_for_each_node(spl, splinter_node_print_branches, NULL);
 }
 
+// trunk
 bool
 splinter_node_print_extent_count(splinter_handle *spl,
                                  uint64           addr,
@@ -8271,7 +8300,7 @@ splinter_print_extent_counts(splinter_handle *spl)
 
 /*
  *-----------------------------------------------------------------------------
- *
+ * LIFT
  * splinter_config_init --
  *
  *       Initialize splinter config
@@ -8408,6 +8437,7 @@ splinter_config_init(splinter_config *splinter_cfg,
    }
 }
 
+// lift?
 size_t
 splinter_get_scratch_size()
 {
