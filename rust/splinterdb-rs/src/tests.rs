@@ -19,12 +19,12 @@ mod tests {
                 cache_size_bytes: 1024 * 1024,
                 disk_size_bytes: 30 * 1024 * 1024,
                 max_key_size: 23,
-                max_value_size: 100,
+                max_value_size: 4,
             },
         )?;
 
         let key = b"some-key-0".to_vec();
-        let value = b"some-value-0".to_vec();
+        let value = b"sv-0".to_vec();
         db.insert(&key, &value)?;
 
         let res = db.lookup(&key)?;
@@ -34,14 +34,14 @@ mod tests {
             crate::LookupResult::Found(v) => assert_eq!(v, value),
         }
 
-        db.insert(&(b"some-key-4".to_vec()), &(b"some-value-4".to_vec()))?;
-        db.insert(&(b"some-key-5".to_vec()), &(b"some-value-5".to_vec()))?;
+        db.insert(&(b"some-key-4".to_vec()), &(b"sv-4".to_vec()))?;
+        db.insert(&(b"some-key-5".to_vec()), &(b"sv-5".to_vec()))?;
         db.delete(&(b"some-key-4".to_vec()))?;
-        db.insert(&(b"some-key-6".to_vec()), &(b"some-value-6".to_vec()))?;
-        db.insert(&(b"some-key-3".to_vec()), &(b"some-value-3".to_vec()))?;
+        db.insert(&(b"some-key-6".to_vec()), &(b"sv-6".to_vec()))?;
+        db.insert(&(b"some-key-3".to_vec()), &(b"sv-3".to_vec()))?;
 
         let res = db.lookup(&(b"some-key-5".to_vec()))?;
-        assert_eq!(res, crate::LookupResult::Found(b"some-value-5".to_vec()));
+        assert_eq!(res, crate::LookupResult::Found(b"sv-5".to_vec()));
 
         let res = db.lookup(&(b"some-key-4".to_vec()))?;
         assert_eq!(res, crate::LookupResult::NotFound);
@@ -56,10 +56,10 @@ mod tests {
             }
         }
 
-        assert_eq!(found[0], (b"some-key-0".to_vec(), b"some-value-0".to_vec()));
-        assert_eq!(found[1], (b"some-key-3".to_vec(), b"some-value-3".to_vec()));
-        assert_eq!(found[2], (b"some-key-5".to_vec(), b"some-value-5".to_vec()));
-        assert_eq!(found[3], (b"some-key-6".to_vec(), b"some-value-6".to_vec()));
+        assert_eq!(found[0], (b"some-key-0".to_vec(), b"sv-0".to_vec()));
+        assert_eq!(found[1], (b"some-key-3".to_vec(), b"sv-3".to_vec()));
+        assert_eq!(found[2], (b"some-key-5".to_vec(), b"sv-5".to_vec()));
+        assert_eq!(found[3], (b"some-key-6".to_vec(), b"sv-6".to_vec()));
 
         drop(iter);
         drop(db);

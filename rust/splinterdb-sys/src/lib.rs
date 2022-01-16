@@ -39,7 +39,7 @@ mod tests {
             cache_size: 200 * 1024 * 1024,
             disk_size: 400 * 1024 * 1024,
             max_key_size: 22,
-            max_value_size: 116,
+            max_value_size: 4,
             key_comparator: None,
             key_comparator_context: std::ptr::null_mut(),
             heap_handle: std::ptr::null_mut(),
