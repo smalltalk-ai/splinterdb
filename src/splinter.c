@@ -4534,7 +4534,9 @@ splinter_compact_bundle(void *arg, void *scratch_buf)
          splinter_node_unclaim(spl, node);
          splinter_node_unget(spl, &node);
 
-         splinter_dec_ref(spl, &new_branch, FALSE);
+         if (pack_req.num_tuples != 0) {
+            splinter_dec_ref(spl, &new_branch, FALSE);
+         }
          platform_free(spl->heap_id, req->fp_arr);
          platform_free(spl->heap_id, req);
          goto out;
