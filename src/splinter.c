@@ -4596,7 +4596,9 @@ splinter_compact_bundle(void *arg, void *scratch_buf)
       }
    }
    if (num_replacements == 0) {
-      splinter_dec_ref(spl, &new_branch, FALSE);
+      if (pack_req.num_tuples != 0) {
+         splinter_dec_ref(spl, &new_branch, FALSE);
+      }
       if (spl->cfg.use_stats) {
          spl->stats[tid].compactions_discarded_flushed[height]++;
          spl->stats[tid].compaction_time_wasted_ns[height] +=
