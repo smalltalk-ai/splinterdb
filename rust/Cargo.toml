@@ -3,4 +3,5 @@ members = [
     "splinterdb-sys",
     "splinterdb-rs",
     "splinterdb-cli",
+    "assert-repro",
 ]

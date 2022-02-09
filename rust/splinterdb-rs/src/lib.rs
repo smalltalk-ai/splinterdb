@@ -248,4 +248,11 @@ pub fn db_open<P: AsRef<Path>>(path: &P, cfg: &DBConfig) -> Result<SplinterDB> {
     db_create_or_open(path, cfg, true)
 }
 
+pub fn get_version() -> &'static str {
+    unsafe {
+        let c_ptr = splinterdb_sys::kvstore_basic_get_version();
+        std::ffi::CStr::from_ptr(c_ptr).to_str().unwrap()
+    }
+}
+
 mod tests;
