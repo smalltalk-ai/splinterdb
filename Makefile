@@ -242,6 +242,9 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
 # Note each test bin/unit/<x> also depends on obj/unit/<x>.o, as
 # defined above using unit_test_self_dependency.
 #
+$(BINDIR)/repro_bug_range_delete: $(OBJDIR)/repro_bug_range_delete.o $(LIBDIR)/libsplinterdb.so
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+
 $(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS)
 
 $(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)
