@@ -228,6 +228,10 @@ PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
 
 UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 
+# ----
+$(BINDIR)/repro_bug_range_delete: $(OBJDIR)/repro_bug_range_delete.o $(LIBDIR)/libsplinterdb.so
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+
 CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
                  $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
                  $(OBJDIR)/$(SRCDIR)/task.o         \
