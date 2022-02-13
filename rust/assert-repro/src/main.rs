@@ -112,24 +112,27 @@ fn thread_worker_writer(state: &SharedState, seed: u64) {
 
         do_random_inserts(
             state.db,
-            num_ops / 2,
+            num_ops,
             &mut rng,
             &mut key_buffer,
             &mut value_buffer,
         );
-        let num_inserted = num_ops;
+        live_keys += num_ops;
 
-        // pick a random start key for a range ops
-        let mut start_key = [0u8; 6];
-        rand_fill_buffer(&mut rng, &mut start_key);
-
-        let mut num_deleted = 0;
-        if round > 100 && round % 3 == 0 {
-            num_deleted = do_range_delete(state.db, &start_key, num_ops / 2);
+        if round > 50 {
+            // empty start key
+            let mut start_key = [0u8; 6];
+            rand_fill_buffer(&mut rng, &mut start_key);
+            let num_deleted = do_range_delete(state.db, &start_key, num_ops / 2);
+            if num_deleted >= live_keys {
+                let current_count = do_range_read(state.db, &[0u8; 1], 100000000);
+                eprintln!("emptied all keys? have {} remaining", current_count);
+                STOP.store(true, Ordering::Relaxed);
+                break;
+            }
+            live_keys -= num_deleted;
         }
 
-        live_keys += num_inserted;
-        live_keys -= num_deleted;
         let tuple_size_on_disk = (1 + MAX_KEY_SIZE as u16 + MAX_VALUE_SIZE as u16 + 8) as usize;
         let live_tuple_bytes = tuple_size_on_disk * live_keys;
         let actual_space_used = get_splinter_bytes_used(state.data_file_path);
@@ -195,19 +198,20 @@ fn do_random_lookups(
     }
 }
 
-fn do_range_read(db: &splinterdb_rs::KvsbDB, start_key: &[u8], count: usize) {
+fn do_range_read(db: &splinterdb_rs::KvsbDB, start_key: &[u8], count: usize) -> usize {
     let mut iter = db.range(Some(start_key)).unwrap();
-    for _ in 0..count {
+    for i in 0..count {
         match iter.next() {
             Ok(Some(&splinterdb_rs::IteratorResult { key: _, value: _ })) => (),
             Ok(None) => {
-                break;
+                return i;
             }
             Err(e) => {
                 panic!("range read errored: {}", e);
             }
         }
     }
+    return count;
 }
 
 fn do_range_delete(db: &splinterdb_rs::KvsbDB, start_key: &[u8], count: usize) -> usize {
@@ -220,8 +224,7 @@ fn do_range_delete(db: &splinterdb_rs::KvsbDB, start_key: &[u8], count: usize) -
         for i in 0..count {
             match iter.next() {
                 Ok(Some(&splinterdb_rs::IteratorResult { key, value: _ })) => {
-                    let mut dst = to_delete[i];
-                    dst[..].copy_from_slice(key);
+                    to_delete[i][..].copy_from_slice(key);
                 }
                 Ok(None) => {
                     to_delete.truncate(i);
@@ -235,25 +238,70 @@ fn do_range_delete(db: &splinterdb_rs::KvsbDB, start_key: &[u8], count: usize) -
     }
 
     for key in &to_delete {
+        match db.lookup(&key[..]).unwrap() {
+            splinterdb_rs::LookupResult::Found(_) => (),
+            splinterdb_rs::LookupResult::FoundTruncated(_) => panic!("truncated result"),
+            splinterdb_rs::LookupResult::NotFound => panic!("not found key expected to delete"),
+        }
         db.delete(&key[..]).unwrap();
     }
     to_delete.len()
 }
 
-fn do_weird_range_cuts(db: &splinterdb_rs::KvsbDB, rng: &mut Pcg64, approx_keys: usize) {
-    // [a, b] [b_next, c] [c_next, d]
-    // target_delete_fraction = 10%
-    // goals:
-    // 1. delete [a,b]
-    // 2. delete [c_next,d]
-    // 3. leave [b_next,c] intact
-    // 4. size(a,b) ~ approx_keys * target_delete_fraction / 2
-    // 5. size(c_next,d) ~ approx_keys * target_delete_fraction / 2
-    // 6. size(b_next, c) ~ approx_keys * target_delete_fraction / 2
+// given a start_key, returns the key that is to_skip after it
+fn fast_forward(db: &splinterdb_rs::KvsbDB, start_key: &[u8], to_skip: usize) -> Vec<u8> {
+    let mut iter = db.range(Some(start_key)).unwrap();
+    for i in 0..to_skip {
+        match iter.next() {
+            Err(e) => {
+                panic!("iterator error on fast_forward: {}", e);
+            }
+            Ok(None) => {
+                panic!(
+                    "insufficient keys for fast_forward.  wanted {} but got {}",
+                    to_skip, i
+                );
+            }
+            Ok(Some(&splinterdb_rs::IteratorResult { key, value: _ })) => {
+                if i + 1 == to_skip {
+                    return key.to_owned();
+                }
+            }
+        }
+    }
+    panic!("this should be unreachable");
+}
+
+fn do_weird_range_cuts(db: &splinterdb_rs::KvsbDB, rng: &mut Pcg64, to_delete: usize) {
+    // [a, b) [b, c) [c, d)
+    // three adjacent intervals, each of size to_delete/2
+    // 1. delete [a,b)
+    // 2. leave [b,c) intact
+    // 3. delete [c,d)
 
     let mut a = [0u8; 6];
     rand_fill_buffer(rng, &mut a);
-    a[2] &= 0b00111111; // bias a to the left of the key space
+    a[2] &= 0b0011_1111; // bias a to the left of the key space
+    let num_deleted = do_range_delete(db, &a, to_delete / 2);
+    if num_deleted < to_delete / 2 {
+        panic!(
+            "insufficient keys for weird range cuts step 1.  wanted {} but got {}",
+            to_delete / 2,
+            num_deleted
+        );
+    }
+
+    // start again from a, but since we've deleted a range
+    // this iterator will first yield at b
+    let c = fast_forward(db, &a, to_delete / 8);
+    let num_deleted = do_range_delete(db, &c, to_delete / 2);
+    if num_deleted < to_delete / 2 {
+        panic!(
+            "insufficient keys for weird range cuts step 3.  wanted {} but got {}",
+            to_delete / 2,
+            num_deleted
+        );
+    }
 }
 
 fn do_random_inserts(
