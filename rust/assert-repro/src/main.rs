@@ -1,5 +1,4 @@
 use clap::Parser;
-use crossbeam_utils::thread;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg64;
 use std::path::Path;
@@ -68,33 +67,10 @@ fn multi_threaded_repro(opts: Opts) {
         disk_capacity_gib: opts.disk_gib,
         data_file_path: &opts.file,
     };
-
-    thread::scope(|s| {
-        {
-            let seed = opts.seed;
-            let state = &state;
-            s.spawn(move |_| {
-                thread_worker_writer(state, seed);
-            });
-        }
-
-        for i in 1..opts.threads {
-            let seed = opts.seed;
-            let state = &state;
-            let thread_id = i;
-            s.spawn(move |_| {
-                thread_worker_reader(state, thread_id, seed);
-            });
-        }
-    })
-    .unwrap();
+    thread_worker_writer(&state, opts.seed);
 }
 
-use std::sync::atomic::{AtomicBool, Ordering};
-static STOP: AtomicBool = AtomicBool::new(false);
-
 fn thread_worker_writer(state: &SharedState, seed: u64) {
-    state.db.register_thread();
     let mut rng = Pcg64::seed_from_u64(seed);
     let mut key_buffer = [0u8; MAX_KEY_SIZE as usize];
     let mut value_buffer = [0u8; MAX_VALUE_SIZE as usize];
@@ -102,32 +78,25 @@ fn thread_worker_writer(state: &SharedState, seed: u64) {
     let mut live_keys = 0;
 
     for round in 0u32.. {
-        if STOP.load(Ordering::Relaxed) {
-            break;
-        }
-
         let min_ops = state.ops_per_round / 4;
         let max_ops = state.ops_per_round;
         let num_ops = rng.gen_range(min_ops..max_ops) as usize;
 
-        do_random_inserts(
-            state.db,
-            num_ops,
-            &mut rng,
-            &mut key_buffer,
-            &mut value_buffer,
-        );
-        live_keys += num_ops;
-
-        if round > 50 {
+        if round < 9 {
+            do_random_inserts(
+                state.db,
+                num_ops,
+                &mut rng,
+                &mut key_buffer,
+                &mut value_buffer,
+            );
+            live_keys += num_ops;
+        } else {
             // empty start key
             let mut start_key = [0u8; 6];
             rand_fill_buffer(&mut rng, &mut start_key);
-            let num_deleted = do_range_delete(state.db, &start_key, num_ops / 2);
+            let num_deleted = do_range_delete(state.db, &start_key, 2 * num_ops);
             if num_deleted >= live_keys {
-                let current_count = do_range_read(state.db, &[0u8; 1], 100000000);
-                eprintln!("emptied all keys? have {} remaining", current_count);
-                STOP.store(true, Ordering::Relaxed);
                 break;
             }
             live_keys -= num_deleted;
@@ -144,74 +113,9 @@ fn thread_worker_writer(state: &SharedState, seed: u64) {
         );
         if actual_space_used + 512 * MEGA >= state.disk_capacity_gib as usize * GIGA {
             eprintln!("actual space nearly filled disk space.  success.");
-            STOP.store(true, Ordering::Relaxed);
             break;
         }
     }
-    state.db.deregister_thread();
-}
-
-fn thread_worker_reader(state: &SharedState, thread_id: u8, seed: u64) {
-    state.db.register_thread();
-    let mut rng = Pcg64::seed_from_u64(seed + thread_id as u64);
-    let mut key_buffer = [0u8; MAX_KEY_SIZE as usize];
-
-    for round in 0u32.. {
-        if STOP.load(Ordering::Relaxed) {
-            break;
-        }
-
-        let min_ops = state.ops_per_round / 4;
-        let max_ops = state.ops_per_round;
-        let num_ops = rng.gen_range(min_ops..max_ops) as usize;
-
-        // pick a random start key for a range ops
-        let mut start_key = [0u8; 6];
-        rand_fill_buffer(&mut rng, &mut start_key);
-
-        if round + thread_id as u32 % 3 == 0 {
-            if round % 5 > 0 {
-                do_range_read(state.db, &start_key, num_ops / 3);
-            } else {
-                do_random_lookups(state.db, num_ops / 10, &mut rng, &mut key_buffer)
-            }
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-    }
-    state.db.deregister_thread();
-}
-
-fn do_random_lookups(
-    db: &splinterdb_rs::KvsbDB,
-    count: usize,
-    rng: &mut Pcg64,
-    key_buffer: &mut [u8],
-) {
-    for _ in 0..count {
-        rand_fill_buffer(rng, key_buffer);
-        match db.lookup(key_buffer).unwrap() {
-            splinterdb_rs::LookupResult::Found(_) => (),
-            splinterdb_rs::LookupResult::FoundTruncated(_) => panic!("truncated result"),
-            splinterdb_rs::LookupResult::NotFound => (),
-        }
-    }
-}
-
-fn do_range_read(db: &splinterdb_rs::KvsbDB, start_key: &[u8], count: usize) -> usize {
-    let mut iter = db.range(Some(start_key)).unwrap();
-    for i in 0..count {
-        match iter.next() {
-            Ok(Some(&splinterdb_rs::IteratorResult { key: _, value: _ })) => (),
-            Ok(None) => {
-                return i;
-            }
-            Err(e) => {
-                panic!("range read errored: {}", e);
-            }
-        }
-    }
-    return count;
 }
 
 fn do_range_delete(db: &splinterdb_rs::KvsbDB, start_key: &[u8], count: usize) -> usize {
@@ -246,62 +150,6 @@ fn do_range_delete(db: &splinterdb_rs::KvsbDB, start_key: &[u8], count: usize) -
         db.delete(&key[..]).unwrap();
     }
     to_delete.len()
-}
-
-// given a start_key, returns the key that is to_skip after it
-fn fast_forward(db: &splinterdb_rs::KvsbDB, start_key: &[u8], to_skip: usize) -> Vec<u8> {
-    let mut iter = db.range(Some(start_key)).unwrap();
-    for i in 0..to_skip {
-        match iter.next() {
-            Err(e) => {
-                panic!("iterator error on fast_forward: {}", e);
-            }
-            Ok(None) => {
-                panic!(
-                    "insufficient keys for fast_forward.  wanted {} but got {}",
-                    to_skip, i
-                );
-            }
-            Ok(Some(&splinterdb_rs::IteratorResult { key, value: _ })) => {
-                if i + 1 == to_skip {
-                    return key.to_owned();
-                }
-            }
-        }
-    }
-    panic!("this should be unreachable");
-}
-
-fn do_weird_range_cuts(db: &splinterdb_rs::KvsbDB, rng: &mut Pcg64, to_delete: usize) {
-    // [a, b) [b, c) [c, d)
-    // three adjacent intervals, each of size to_delete/2
-    // 1. delete [a,b)
-    // 2. leave [b,c) intact
-    // 3. delete [c,d)
-
-    let mut a = [0u8; 6];
-    rand_fill_buffer(rng, &mut a);
-    a[2] &= 0b0011_1111; // bias a to the left of the key space
-    let num_deleted = do_range_delete(db, &a, to_delete / 2);
-    if num_deleted < to_delete / 2 {
-        panic!(
-            "insufficient keys for weird range cuts step 1.  wanted {} but got {}",
-            to_delete / 2,
-            num_deleted
-        );
-    }
-
-    // start again from a, but since we've deleted a range
-    // this iterator will first yield at b
-    let c = fast_forward(db, &a, to_delete / 8);
-    let num_deleted = do_range_delete(db, &c, to_delete / 2);
-    if num_deleted < to_delete / 2 {
-        panic!(
-            "insufficient keys for weird range cuts step 3.  wanted {} but got {}",
-            to_delete / 2,
-            num_deleted
-        );
-    }
 }
 
 fn do_random_inserts(
