@@ -82,7 +82,7 @@ fn thread_worker_writer(state: &SharedState, seed: u64) {
         let max_ops = state.ops_per_round;
         let num_ops = rng.gen_range(min_ops..max_ops) as usize;
 
-        if round < 9 {
+        if round < 20 {
             do_random_inserts(
                 state.db,
                 num_ops,
