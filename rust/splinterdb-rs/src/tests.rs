@@ -65,4 +65,47 @@ mod tests {
         drop(db);
         Ok(())
     }
+
+    // Iterator test
+    #[test]
+    fn iterator() -> std::io::Result<()> {
+        use tempfile::tempdir;
+
+        let data_dir = tempdir()?; // is removed on drop
+        let data_file = data_dir.path().join("db.splinterdb");
+
+        let db = crate::db_create(
+            &data_file,
+            &crate::DBConfig {
+                cache_size_bytes: 1024 * 1024,
+                disk_size_bytes: 30 * 1024 * 1024,
+                max_key_size: 23,
+                max_value_size: 100,
+            },
+        )?;
+
+        db.insert(&(b"some-key-4".to_vec()), &(b"some-value-4".to_vec()))?;
+        db.insert(&(b"some-key-5".to_vec()), &(b"some-value-5".to_vec()))?;
+        db.delete(&(b"some-key-4".to_vec()))?;
+        db.insert(&(b"some-key-6".to_vec()), &(b"some-value-6".to_vec()))?;
+        db.insert(&(b"some-key-3".to_vec()), &(b"some-value-3".to_vec()))?;
+
+        // iterator that starts too high yields nothing
+        {
+            let mut iter = db.range(Some(&(b"zzzz").to_vec())).unwrap();
+            loop {
+                match iter.next() {
+                    Ok(Some(r)) => {
+                        panic!("unexpectedly found key {:?}", r);
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        panic!("unexpected error {}", e);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
