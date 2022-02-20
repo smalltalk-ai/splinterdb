@@ -394,14 +394,11 @@ filter_test(int argc, char *argv[])
       rc = test_filter_basic(
          (cache *)cc, &cfg->filter_cfg, hid, 100, cfg->fanout);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic((cache *)cc,
-                             &cfg->filter_cfg,
-                             hid,
-                             50,
-                             cfg->max_branches_per_node);
-      platform_assert(SUCCESS(rc));
       rc = test_filter_basic(
-         (cache *)cc, &cfg->filter_cfg, hid, 1, cfg->fanout);
+         (cache *)cc, &cfg->filter_cfg, hid, 50, cfg->max_branches_per_node);
+      platform_assert(SUCCESS(rc));
+      rc =
+         test_filter_basic((cache *)cc, &cfg->filter_cfg, hid, 1, cfg->fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic(
          (cache *)cc, &cfg->filter_cfg, hid, 1, 2 * cfg->fanout);

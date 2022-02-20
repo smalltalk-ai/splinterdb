@@ -3354,6 +3354,9 @@ trunk_dec_filter(trunk_handle *spl, routing_filter *filter)
    routing_filter_zap(cc, filter);
 }
 
+/*
+ * Scratch space used for filter building.
+ */
 typedef struct trunk_filter_req {
    uint64         addr;
    uint16         height;
@@ -3366,6 +3369,19 @@ typedef struct trunk_filter_req {
    routing_filter filter[TRUNK_MAX_PIVOTS];
    uint32        *fp_arr;
 } trunk_filter_req;
+
+static inline void
+trunk_filter_req_init(trunk_compact_bundle_req *compact_req,
+                      trunk_filter_req         *filter_req)
+{
+   ZERO_CONTENTS(filter_req);
+   filter_req->addr                 = compact_req->addr;
+   filter_req->height               = compact_req->height;
+   filter_req->bundle_no            = compact_req->bundle_no;
+   filter_req->generation           = compact_req->generation;
+   filter_req->max_pivot_generation = compact_req->max_pivot_generation;
+   filter_req->fp_arr               = compact_req->fp_arr;
+}
 
 static inline page_handle *
 trunk_node_get_maybe_descend(trunk_handle *spl, trunk_compact_bundle_req *req)
@@ -3455,19 +3471,6 @@ trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
       return TRUE;
    }
    return FALSE;
-}
-
-static inline void
-trunk_filter_req_init(trunk_compact_bundle_req *compact_req,
-                      trunk_filter_req         *filter_req)
-{
-   ZERO_CONTENTS(filter_req);
-   filter_req->addr                 = compact_req->addr;
-   filter_req->height               = compact_req->height;
-   filter_req->bundle_no            = compact_req->bundle_no;
-   filter_req->generation           = compact_req->generation;
-   filter_req->max_pivot_generation = compact_req->max_pivot_generation;
-   filter_req->fp_arr               = compact_req->fp_arr;
 }
 
 static inline void
