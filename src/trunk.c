@@ -543,17 +543,12 @@ struct trunk_compact_bundle_req {
    uint16                bundle_no;
    trunk_compaction_type type;
    uint64                generation;
-   uint64                filter_generation;
    uint64                pivot_generation[TRUNK_MAX_PIVOTS];
    uint64                max_pivot_generation;
    uint64                input_pivot_count[TRUNK_MAX_PIVOTS];
    uint64                output_pivot_count[TRUNK_MAX_PIVOTS];
    uint64                tuples_reclaimed;
    uint32               *fp_arr;
-   bool                  should_build[TRUNK_MAX_PIVOTS];
-   routing_filter        old_filter[TRUNK_MAX_PIVOTS];
-   uint16                value[TRUNK_MAX_PIVOTS];
-   routing_filter        filter[TRUNK_MAX_PIVOTS];
 };
 
 // an iterator which skips masked pivots
@@ -1459,9 +1454,9 @@ trunk_pivot_set_num_tuples(trunk_handle *spl,
 static inline uint64
 trunk_pivot_tuples_to_reclaim(trunk_handle *spl, trunk_pivot_data *pdata)
 {
-   uint64 tuples_in_pivot   = pdata->filter.num_fingerprints;
-   uint64 est_unique_tuples = routing_filter_estimate_unique_keys(
-      &pdata->filter, &spl->cfg.leaf_filter_cfg);
+   uint64 tuples_in_pivot = pdata->filter.num_fingerprints;
+   uint64 est_unique_tuples =
+      routing_filter_estimate_unique_keys(&pdata->filter, &spl->cfg.filter_cfg);
    return tuples_in_pivot > est_unique_tuples
              ? tuples_in_pivot - est_unique_tuples
              : 0;
@@ -2598,30 +2593,6 @@ trunk_replace_bundle_branches(trunk_handle             *spl,
    debug_assert(trunk_bundle_start_branch(spl, node, bundle)
                 == bundle_start_branch);
 
-   if (repl_branch == NULL) {
-      for (uint16 later_bundle_no = bundle_no;
-           later_bundle_no != trunk_bundle_no_sub(spl, hdr->end_bundle, 1);
-           later_bundle_no = trunk_bundle_no_add(spl, later_bundle_no, 1))
-      {
-         uint16 src_later_bundle_no =
-            trunk_bundle_no_add(spl, later_bundle_no, 1);
-         *trunk_get_bundle(spl, node, later_bundle_no) =
-            *trunk_get_bundle(spl, node, src_later_bundle_no);
-      }
-      hdr->end_bundle = trunk_bundle_no_sub(spl, hdr->end_bundle, 1);
-   }
-
-   // fix the pivot start branches
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      if (!trunk_branch_live_for_pivot(
-             spl, node, bundle_start_branch, pivot_no)) {
-         pdata->start_branch =
-            trunk_branch_no_sub(spl, pdata->start_branch, branch_diff);
-         debug_assert(trunk_branch_valid(spl, node, pdata->start_branch));
-      }
-   }
-
    // fix the pivot tuples
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       if (trunk_bundle_live_for_pivot(spl, node, bundle_no, pivot_no)) {
@@ -2643,6 +2614,38 @@ trunk_replace_bundle_branches(trunk_handle             *spl,
          }
          req->tuples_reclaimed +=
             req->input_pivot_count[pos] - req->output_pivot_count[pos];
+      }
+   }
+
+   // if there is no replacement branch, vanish the bundle
+   if (repl_branch == NULL) {
+      for (uint16 later_bundle_no = bundle_no;
+           later_bundle_no != trunk_bundle_no_sub(spl, hdr->end_bundle, 1);
+           later_bundle_no = trunk_bundle_no_add(spl, later_bundle_no, 1))
+      {
+         uint16 src_later_bundle_no =
+            trunk_bundle_no_add(spl, later_bundle_no, 1);
+         *trunk_get_bundle(spl, node, later_bundle_no) =
+            *trunk_get_bundle(spl, node, src_later_bundle_no);
+      }
+      for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+         if (pdata->start_bundle > bundle_no) {
+            pdata->start_bundle =
+               trunk_bundle_no_sub(spl, pdata->start_bundle, 1);
+         }
+      }
+      hdr->end_bundle = trunk_bundle_no_sub(spl, hdr->end_bundle, 1);
+   }
+
+   // fix the pivot start branches
+   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+      if (!trunk_branch_live_for_pivot(
+             spl, node, bundle_start_branch, pivot_no)) {
+         pdata->start_branch =
+            trunk_branch_no_sub(spl, pdata->start_branch, branch_diff);
+         debug_assert(trunk_branch_valid(spl, node, pdata->start_branch));
       }
    }
 
@@ -2965,8 +2968,8 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
                        &spl->cfg.btree_cfg,
                        itor,
                        spl->cfg.max_tuples_per_node,
-                       spl->cfg.leaf_filter_cfg.hash,
-                       spl->cfg.leaf_filter_cfg.seed,
+                       spl->cfg.filter_cfg.hash,
+                       spl->cfg.filter_cfg.seed,
                        spl->heap_id);
    uint64 pack_start;
    if (spl->cfg.use_stats) {
@@ -3000,9 +3003,10 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    uint32 *dup_fp_arr =
       TYPED_ARRAY_MALLOC(spl->heap_id, dup_fp_arr, req.num_tuples);
    memmove(dup_fp_arr, cmt->req->fp_arr, req.num_tuples * sizeof(uint32));
-   routing_filter  empty_filter = {0};
-   platform_status rc           = routing_filter_add(spl->cc,
-                                           &spl->cfg.leaf_filter_cfg,
+   routing_filter empty_filter = {0};
+
+   platform_status rc = routing_filter_add(spl->cc,
+                                           &spl->cfg.filter_cfg,
                                            spl->heap_id,
                                            &empty_filter,
                                            &cmt->filter,
@@ -3355,13 +3359,9 @@ trunk_memtable_lookup(trunk_handle    *spl,
  */
 
 static inline routing_config *
-trunk_routing_cfg(trunk_handle *spl, bool is_leaf)
+trunk_routing_cfg(trunk_handle *spl)
 {
-   // if (is_leaf) {
-   return &spl->cfg.leaf_filter_cfg;
-   //} else {
-   //   return &spl->cfg.index_filter_cfg;
-   //}
+   return &spl->cfg.filter_cfg;
 }
 
 static inline void
@@ -3379,6 +3379,35 @@ trunk_dec_filter(trunk_handle *spl, routing_filter *filter)
    }
    cache *cc = spl->cc;
    routing_filter_zap(cc, filter);
+}
+
+/*
+ * Scratch space used for filter building.
+ */
+typedef struct trunk_filter_req {
+   uint64         addr;
+   uint16         height;
+   uint16         bundle_no;
+   uint64         generation;
+   uint64         max_pivot_generation;
+   bool           should_build[TRUNK_MAX_PIVOTS];
+   routing_filter old_filter[TRUNK_MAX_PIVOTS];
+   uint16         value[TRUNK_MAX_PIVOTS];
+   routing_filter filter[TRUNK_MAX_PIVOTS];
+   uint32        *fp_arr;
+} trunk_filter_req;
+
+static inline void
+trunk_filter_req_init(trunk_compact_bundle_req *compact_req,
+                      trunk_filter_req         *filter_req)
+{
+   ZERO_CONTENTS(filter_req);
+   filter_req->addr                 = compact_req->addr;
+   filter_req->height               = compact_req->height;
+   filter_req->bundle_no            = compact_req->bundle_no;
+   filter_req->generation           = compact_req->generation;
+   filter_req->max_pivot_generation = compact_req->max_pivot_generation;
+   filter_req->fp_arr               = compact_req->fp_arr;
 }
 
 static inline page_handle *
@@ -3473,23 +3502,28 @@ trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
 
 static inline void
 trunk_prepare_build_filter(trunk_handle             *spl,
-                           trunk_compact_bundle_req *req,
+                           trunk_compact_bundle_req *compact_req,
+                           trunk_filter_req         *filter_req,
                            page_handle              *node)
 {
    uint16 height = trunk_height(spl, node);
-   platform_assert(req->height == height);
-   platform_assert(req->bundle_no == trunk_start_bundle(spl, node));
+   platform_assert(compact_req->height == height);
+   platform_assert(compact_req->bundle_no == trunk_start_bundle(spl, node));
+
+   trunk_filter_req_init(compact_req, filter_req);
 
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      if (trunk_bundle_live_for_pivot(spl, node, req->bundle_no, pivot_no)) {
-         uint64 pos =
-            trunk_process_generation_to_pos(spl, req, pdata->generation);
+      if (trunk_bundle_live_for_pivot(
+             spl, node, filter_req->bundle_no, pivot_no)) {
+         uint64 pos = trunk_process_generation_to_pos(
+            spl, compact_req, pdata->generation);
          platform_assert(pos != TRUNK_MAX_PIVOTS);
-         req->old_filter[pos] = pdata->filter;
-         req->value[pos] = trunk_pivot_whole_branch_count(spl, node, pdata);
-         req->should_build[pos] = TRUE;
+         filter_req->old_filter[pos] = pdata->filter;
+         filter_req->value[pos] =
+            trunk_pivot_whole_branch_count(spl, node, pdata);
+         filter_req->should_build[pos] = TRUE;
       }
    }
 }
@@ -3514,41 +3548,41 @@ trunk_process_generation_to_fp_bounds(trunk_handle             *spl,
 }
 
 static inline void
-trunk_build_filters(trunk_handle *spl, trunk_compact_bundle_req *req)
+trunk_build_filters(trunk_handle             *spl,
+                    trunk_compact_bundle_req *compact_req,
+                    trunk_filter_req         *filter_req)
 {
    threadid tid;
    uint64   filter_build_start;
    uint16   height;
    if (spl->cfg.use_stats) {
       tid                = platform_get_tid();
-      height             = req->height;
+      height             = filter_req->height;
       filter_build_start = platform_get_timestamp();
    }
 
    for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
-      if (!req->should_build[pos]) {
+      if (!filter_req->should_build[pos]) {
          continue;
       }
-      routing_filter old_filter = req->old_filter[pos];
+      routing_filter old_filter = filter_req->old_filter[pos];
       uint32         fp_start, fp_end;
-      uint64         generation = req->pivot_generation[pos];
+      uint64         generation = compact_req->pivot_generation[pos];
       trunk_process_generation_to_fp_bounds(
-         spl, req, generation, &fp_start, &fp_end);
-      uint32 *fp_arr           = req->fp_arr + fp_start;
+         spl, compact_req, generation, &fp_start, &fp_end);
+      uint32 *fp_arr           = filter_req->fp_arr + fp_start;
       uint32  num_fingerprints = fp_end - fp_start;
       if (num_fingerprints == 0) {
          if (old_filter.addr != 0) {
             trunk_inc_filter(spl, &old_filter);
          }
-         req->filter[pos] = old_filter;
+         filter_req->filter[pos] = old_filter;
          continue;
       }
       routing_filter  new_filter;
-      routing_config *filter_cfg = &spl->cfg.leaf_filter_cfg;
-      // routing_config *filter_cfg = height == 0 ?
-      //    &spl->cfg.leaf_filter_cfg : &spl->cfg.index_filter_cfg;
-      uint16          value = req->value[pos];
-      platform_status rc    = routing_filter_add(spl->cc,
+      routing_config *filter_cfg = &spl->cfg.filter_cfg;
+      uint16          value      = filter_req->value[pos];
+      platform_status rc         = routing_filter_add(spl->cc,
                                               filter_cfg,
                                               spl->heap_id,
                                               &old_filter,
@@ -3556,13 +3590,10 @@ trunk_build_filters(trunk_handle *spl, trunk_compact_bundle_req *req)
                                               fp_arr,
                                               num_fingerprints,
                                               value);
-      // platform_log("cre filter %lu in %lu (%u), gen %lu\n",
-      //      new_filter.addr, req->addr,
-      //      allocator_get_ref(spl->al, new_filter.addr), generation);
       platform_assert(SUCCESS(rc));
 
-      req->filter[pos]       = new_filter;
-      req->should_build[pos] = FALSE;
+      filter_req->filter[pos]       = new_filter;
+      filter_req->should_build[pos] = FALSE;
       if (spl->cfg.use_stats) {
          spl->stats[tid].filters_built[height]++;
          spl->stats[tid].filter_tuples[height] += num_fingerprints;
@@ -3577,52 +3608,38 @@ trunk_build_filters(trunk_handle *spl, trunk_compact_bundle_req *req)
 
 static inline void
 trunk_replace_routing_filter(trunk_handle             *spl,
-                             trunk_compact_bundle_req *req,
+                             trunk_compact_bundle_req *compact_req,
+                             trunk_filter_req         *filter_req,
                              page_handle              *node)
 {
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      uint64 pos = trunk_process_generation_to_pos(spl, req, pdata->generation);
-      if (!trunk_bundle_live_for_pivot(spl, node, req->bundle_no, pivot_no)) {
-         // platform_log("not live: %lu %lu %lu %lu\n",
-         //       node->disk_addr, pdata->generation, pos,
-         //       req->filter[pos].addr);
-         if (pos != TRUNK_MAX_PIVOTS && req->filter[pos].addr != 0) {
-            trunk_dec_filter(spl, &req->filter[pos]);
-            ZERO_CONTENTS(&req->filter[pos]);
-            // platform_log("dec filter %lu in %lu (%u)\n",
-            //      req->filter[pos].addr, node->disk_addr,
-            //      allocator_get_ref(spl->al, req->filter[pos].addr));
+      uint64            pos =
+         trunk_process_generation_to_pos(spl, compact_req, pdata->generation);
+      if (!trunk_bundle_live_for_pivot(
+             spl, node, filter_req->bundle_no, pivot_no)) {
+         if (pos != TRUNK_MAX_PIVOTS && filter_req->filter[pos].addr != 0) {
+            trunk_dec_filter(spl, &filter_req->filter[pos]);
+            ZERO_CONTENTS(&filter_req->filter[pos]);
          }
          continue;
       }
       platform_assert(pos != TRUNK_MAX_PIVOTS);
-      debug_assert(pdata->generation < req->max_pivot_generation);
+      debug_assert(pdata->generation < filter_req->max_pivot_generation);
       trunk_dec_filter(spl, &pdata->filter);
-      // platform_log("dec filter %lu in %lu (%u)\n",
-      //      pdata->filter.addr, node->disk_addr,
-      //      allocator_get_ref(spl->al, pdata->filter.addr));
-      pdata->filter = req->filter[pos];
-      ZERO_CONTENTS(&req->filter[pos]);
+      pdata->filter = filter_req->filter[pos];
+      ZERO_CONTENTS(&filter_req->filter[pos]);
       uint64 num_tuples_to_reclaim = trunk_pivot_tuples_to_reclaim(spl, pdata);
-      // platform_log("New routing filter with %u fp %u unique (%lu to
-      // reclaim)\n",
-      //       pdata->filter.num_fingerprints, pdata->filter.num_unique,
-      //       num_tuples_to_reclaim);
       if (pdata->srq_idx != -1 && spl->cfg.reclaim_threshold != UINT64_MAX) {
-         // platform_log("Updating %12lu-%lu:%8lu into SRQ\n",
-         //    node->disk_addr, pdata->generation, num_tuples_to_reclaim);
          srq_update(&spl->srq, pdata->srq_idx, num_tuples_to_reclaim);
          srq_print(&spl->srq);
       } else if ((num_tuples_to_reclaim > TRUNK_MIN_SPACE_RECL)
                  && (spl->cfg.reclaim_threshold != UINT64_MAX))
       {
-         srq_data data = {.addr             = node->disk_addr,
-                          .pivot_generation = pdata->generation,
-                          .priority         = num_tuples_to_reclaim};
-         // platform_log("Inserting %12lu-%lu:%8lu into SRQ\n",
-         //       data.addr, data.pivot_generation, data.priority);
+         srq_data data  = {.addr             = node->disk_addr,
+                           .pivot_generation = pdata->generation,
+                           .priority         = num_tuples_to_reclaim};
          pdata->srq_idx = srq_insert(&spl->srq, data);
          srq_print(&spl->srq);
       }
@@ -3637,103 +3654,105 @@ trunk_replace_routing_filter(trunk_handle             *spl,
 void
 trunk_bundle_build_filters(void *arg, void *scratch)
 {
-   trunk_compact_bundle_req *req = (trunk_compact_bundle_req *)arg;
-   trunk_handle             *spl = req->spl;
+   trunk_compact_bundle_req *compact_req = (trunk_compact_bundle_req *)arg;
+   trunk_handle             *spl         = compact_req->spl;
 
    uint64 generation;
    do {
-      page_handle *node = trunk_node_get_maybe_descend(spl, req);
+      page_handle *node = trunk_node_get_maybe_descend(spl, compact_req);
       platform_assert(node != NULL);
 
       trunk_open_log_stream();
       trunk_log_stream("build filter for %lu bundle %u pivot_gen %lu\n",
-                       req->addr,
-                       req->bundle_no,
-                       req->max_pivot_generation);
+                       compact_req->addr,
+                       compact_req->bundle_no,
+                       compact_req->max_pivot_generation);
       trunk_log_node(spl, node);
-      if (trunk_build_filter_should_abort(req, node)) {
+      if (trunk_build_filter_should_abort(compact_req, node)) {
          trunk_log_stream("leaf split, aborting\n");
          trunk_node_unget(spl, &node);
          goto out;
       }
-      if (trunk_build_filter_should_skip(req, node)) {
+      if (trunk_build_filter_should_skip(compact_req, node)) {
          trunk_log_stream("bundle flushed, skipping\n");
          goto next_node;
       }
 
-      if (trunk_build_filter_should_reenqueue(req, node)) {
-         task_enqueue(
-            spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, FALSE);
+      if (trunk_build_filter_should_reenqueue(compact_req, node)) {
+         task_enqueue(spl->ts,
+                      TASK_TYPE_NORMAL,
+                      trunk_bundle_build_filters,
+                      compact_req,
+                      FALSE);
          trunk_log_stream("out of order, reequeuing\n");
          trunk_close_log_stream();
          trunk_node_unget(spl, &node);
          return;
       }
 
-      for (uint64 i = 0; i < TRUNK_MAX_PIVOTS; i++) {
-         platform_assert(!req->should_build[i],
-                         "i=%lu, should_build[i]=%d",
-                         i,
-                         req->should_build[i]);
-      }
-      trunk_prepare_build_filter(spl, req, node);
-      req->filter_generation = trunk_generation(spl, node);
+      trunk_filter_req filter_req = {0};
+      trunk_prepare_build_filter(spl, compact_req, &filter_req, node);
+      uint64 filter_generation = trunk_generation(spl, node);
       trunk_node_unget(spl, &node);
 
-      trunk_build_filters(spl, req);
+      trunk_build_filters(spl, compact_req, &filter_req);
 
       trunk_log_stream("----------------------------------------\n");
 
       do {
-         node = trunk_node_get_claim_maybe_descend(spl, req);
-         if (trunk_build_filter_should_abort(req, node)) {
+         node = trunk_node_get_claim_maybe_descend(spl, compact_req);
+         if (trunk_build_filter_should_abort(compact_req, node)) {
             trunk_log_stream("replace_filter abort leaf split (%lu)\n",
-                             req->addr);
+                             compact_req->addr);
             trunk_node_unclaim(spl, node);
             trunk_node_unget(spl, &node);
+            for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
+               trunk_dec_filter(spl, &filter_req.filter[pos]);
+            }
             goto out;
          }
          trunk_node_lock(spl, node);
-         trunk_replace_routing_filter(spl, req, node);
-         if (trunk_bundle_live(spl, node, req->bundle_no)) {
-            trunk_clear_bundle(spl, node, req->bundle_no);
+         trunk_replace_routing_filter(spl, compact_req, &filter_req, node);
+         if (trunk_bundle_live(spl, node, filter_req.bundle_no)) {
+            trunk_clear_bundle(spl, node, filter_req.bundle_no);
          }
          trunk_node_unlock(spl, node);
          trunk_node_unclaim(spl, node);
-         req->addr  = trunk_next_addr(spl, node);
-         generation = trunk_generation(spl, node);
+         filter_req.addr = trunk_next_addr(spl, node);
+         generation      = trunk_generation(spl, node);
          debug_assert(trunk_verify_node(spl, node));
-         if (generation != req->filter_generation) {
-            trunk_log_stream("replace_filter split to %lu\n", req->addr);
-            debug_assert(req->height != 0);
-            debug_assert(req->addr != 0);
+         if (generation != filter_generation) {
+            trunk_log_stream("replace_filter split to %lu\n", filter_req.addr);
+            debug_assert(filter_req.height != 0);
+            debug_assert(filter_req.addr != 0);
             trunk_node_unget(spl, &node);
          }
-      } while (generation != req->filter_generation);
+      } while (generation != filter_generation);
+
+      for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
+         trunk_dec_filter(spl, &filter_req.filter[pos]);
+      }
 
       trunk_log_node(spl, node);
       trunk_log_stream("----------------------------------------\n");
       trunk_log_stream("\n");
 
    next_node:
-      req->addr  = trunk_next_addr(spl, node);
-      generation = trunk_generation(spl, node);
+      compact_req->addr = trunk_next_addr(spl, node);
+      generation        = trunk_generation(spl, node);
       debug_assert(trunk_verify_node(spl, node));
       trunk_node_unget(spl, &node);
-      if (req->generation != generation) {
-         trunk_log_stream("build_filter split to %lu\n", req->addr);
-         debug_assert(req->height != 0);
-         debug_assert(req->addr != 0);
+      if (compact_req->generation != generation) {
+         trunk_log_stream("build_filter split to %lu\n", compact_req->addr);
+         debug_assert(compact_req->height != 0);
+         debug_assert(compact_req->addr != 0);
       }
       trunk_close_log_stream();
-   } while (req->generation != generation);
+   } while (compact_req->generation != generation);
 
 out:
-   for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
-      trunk_dec_filter(spl, &req->filter[pos]);
-   }
-   platform_free(spl->heap_id, req->fp_arr);
-   platform_free(spl->heap_id, req);
+   platform_free(spl->heap_id, compact_req->fp_arr);
+   platform_free(spl->heap_id, compact_req);
    trunk_maybe_reclaim_space(spl);
    return;
 }
@@ -4292,8 +4311,8 @@ trunk_btree_pack_req_init(trunk_handle   *spl,
                        &spl->cfg.btree_cfg,
                        itor,
                        spl->cfg.max_tuples_per_node,
-                       spl->cfg.leaf_filter_cfg.hash,
-                       spl->cfg.leaf_filter_cfg.seed,
+                       spl->cfg.filter_cfg.hash,
+                       spl->cfg.filter_cfg.seed,
                        spl->heap_id);
 }
 
@@ -4519,7 +4538,6 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
    req->fp_arr = pack_req.fingerprint_arr;
 
-   trunk_log_stream("output: %lu\n", req->root_addr);
    if (spl->cfg.use_stats) {
       if (pack_req.num_tuples == 0) {
          spl->stats[tid].compactions_empty[height]++;
@@ -4530,7 +4548,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       }
    }
 
-   trunk_log_stream("output point: %lu\n", pack_req.root_addr);
+   trunk_log_stream("output: %lu\n", pack_req.root_addr);
 
    /*
     * 10. Clean up
@@ -4868,10 +4886,10 @@ trunk_pivot_estimate_unique_keys(trunk_handle     *spl,
    }
 
    uint32 num_unique = routing_filter_estimate_unique_fp(
-      spl->cc, &spl->cfg.leaf_filter_cfg, spl->heap_id, filter, filter_no);
+      spl->cc, &spl->cfg.filter_cfg, spl->heap_id, filter, filter_no);
 
    num_unique = routing_filter_estimate_unique_keys_from_count(
-      &spl->cfg.leaf_filter_cfg, num_unique);
+      &spl->cfg.filter_cfg, num_unique);
 
    uint64 num_leaf_sb_fp = 0;
    for (uint16 bundle_no = pdata->start_bundle;
@@ -5232,6 +5250,7 @@ trunk_split_leaf(trunk_handle *spl,
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
    platform_assert(SUCCESS(rc));
 
+   trunk_log_node(spl, parent);
    trunk_log_node(spl, leaf);
 
    debug_assert(trunk_verify_node(spl, leaf));
@@ -5911,7 +5930,7 @@ trunk_compacted_subbundle_lookup(trunk_handle    *spl,
       debug_assert(filter->addr != 0);
       slice key_slice = slice_create(spl->cfg.data_cfg->key_size, (void *)key);
       platform_status rc = routing_filter_lookup(
-         spl->cc, &spl->cfg.leaf_filter_cfg, filter, key_slice, &found_values);
+         spl->cc, &spl->cfg.filter_cfg, filter, key_slice, &found_values);
       platform_assert_status_ok(rc);
       if (found_values) {
          uint16          branch_no = sb->start_branch;
@@ -5957,9 +5976,7 @@ trunk_bundle_lookup(trunk_handle    *spl,
             trunk_compacted_subbundle_lookup(spl, node, sb, key, data);
       } else {
          routing_filter *filter = trunk_subbundle_filter(spl, node, sb, 0);
-         routing_config *cfg    = &spl->cfg.leaf_filter_cfg;
-         // routing_config *cfg = sb->state == SB_STATE_UNCOMPACTED_LEAF ?
-         //    &spl->cfg.leaf_filter_cfg : &spl->cfg.index_filter_cfg;
+         routing_config *cfg    = &spl->cfg.filter_cfg;
          debug_assert(filter->addr != 0);
          should_continue = trunk_filter_lookup(
             spl, node, filter, cfg, sb->start_branch, key, data);
@@ -5992,10 +6009,7 @@ trunk_pivot_lookup(trunk_handle     *spl,
       }
    }
 
-   routing_config *cfg = &spl->cfg.leaf_filter_cfg;
-   // routing_config *cfg = trunk_height(spl, node) == 0 ?
-   //                       &spl->cfg.leaf_filter_cfg :
-   //                       &spl->cfg.index_filter_cfg;
+   routing_config *cfg = &spl->cfg.filter_cfg;
    return trunk_filter_lookup(
       spl, node, &pdata->filter, cfg, pdata->start_branch, key, data);
 }
@@ -6381,8 +6395,9 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
             //       break;
             // }
 
-            routing_config *filter_cfg = trunk_routing_cfg(spl, TRUE);
-            res                        = trunk_filter_lookup_async(spl,
+            routing_config *filter_cfg = trunk_routing_cfg(spl);
+
+            res = trunk_filter_lookup_async(spl,
                                             filter_cfg,
                                             ctxt->filter,
                                             key,
@@ -7494,13 +7509,15 @@ trunk_print_locked_node(trunk_handle          *spl,
                              "",
                              "");
       } else {
-         platform_log_stream("| %24s | %12lu | %12lu | %11lu | %4ld | %5lu |\n",
-                             key_string,
-                             pdata->addr,
-                             pdata->filter.addr,
-                             pdata->num_tuples,
-                             pdata->srq_idx,
-                             pdata->generation);
+         platform_log_stream(
+            "| %24s | %12lu | %12lu | %11lu | %4ld | %5lu | %5u\n",
+            key_string,
+            pdata->addr,
+            pdata->filter.addr,
+            pdata->num_tuples,
+            pdata->srq_idx,
+            pdata->generation,
+            pdata->start_branch);
       }
    }
    // clang-format off
@@ -8344,8 +8361,7 @@ trunk_config_init(trunk_config *trunk_cfg,
 
    uint64          trunk_pivot_size;
    uint64          bytes_for_branches;
-   routing_config *index_filter_cfg = &trunk_cfg->index_filter_cfg;
-   routing_config *leaf_filter_cfg  = &trunk_cfg->leaf_filter_cfg;
+   routing_config *filter_cfg = &trunk_cfg->filter_cfg;
 
    ZERO_CONTENTS(trunk_cfg);
    trunk_cfg->cache_cfg = cache_cfg;
@@ -8411,25 +8427,21 @@ trunk_config_init(trunk_config *trunk_cfg,
    trunk_cfg->target_leaf_tuples = trunk_cfg->max_tuples_per_node / 2;
 
    // filter config settings
-   index_filter_cfg->cache_cfg = cache_cfg;
-   leaf_filter_cfg->cache_cfg  = cache_cfg;
+   filter_cfg->cache_cfg  = cache_cfg;
 
-   index_filter_cfg->index_size = filter_index_size;
-   index_filter_cfg->seed       = 42;
-   index_filter_cfg->hash       = trunk_cfg->data_cfg->key_hash;
-   index_filter_cfg->data_cfg   = trunk_cfg->data_cfg;
-   index_filter_cfg->log_index_size =
-      31 - __builtin_clz(index_filter_cfg->index_size);
-   memmove(leaf_filter_cfg, index_filter_cfg, sizeof(*leaf_filter_cfg));
+   filter_cfg->index_size = filter_index_size;
+   filter_cfg->seed       = 42;
+   filter_cfg->hash       = trunk_cfg->data_cfg->key_hash;
+   filter_cfg->data_cfg   = trunk_cfg->data_cfg;
+   filter_cfg->log_index_size = 31 - __builtin_clz(filter_cfg->index_size);
 
    uint64 filter_max_fingerprints = trunk_cfg->max_tuples_per_node;
    uint64 filter_quotient_size = 64 - __builtin_clzll(filter_max_fingerprints);
    uint64 filter_fingerprint_size =
       filter_remainder_size + filter_quotient_size;
-   index_filter_cfg->fingerprint_size = filter_fingerprint_size;
-   leaf_filter_cfg->fingerprint_size  = filter_fingerprint_size;
-   uint64 max_value                   = trunk_cfg->max_branches_per_node;
-   size_t max_value_size              = 64 - __builtin_clzll(max_value);
+   filter_cfg->fingerprint_size = filter_fingerprint_size;
+   uint64 max_value             = trunk_cfg->max_branches_per_node;
+   size_t max_value_size        = 64 - __builtin_clzll(max_value);
 
    if (filter_fingerprint_size > 32 - max_value_size) {
       platform_error_log(
@@ -8438,11 +8450,10 @@ trunk_config_init(trunk_config *trunk_cfg,
          filter_fingerprint_size,
          max_value_size,
          32 - max_value_size);
-      index_filter_cfg->fingerprint_size = 32 - max_value_size;
-      leaf_filter_cfg->fingerprint_size  = 32 - max_value_size;
+      filter_cfg->fingerprint_size = 32 - max_value_size;
    }
 
-   platform_log("fingerprint_size: %u\n", leaf_filter_cfg->fingerprint_size);
+   platform_log("fingerprint_size: %u\n", filter_cfg->fingerprint_size);
 
    /*
     * Set filter index size
@@ -8470,15 +8481,15 @@ trunk_config_init(trunk_config *trunk_cfg,
    uint64 addrs_per_page   = trunk_page_size(trunk_cfg) / sizeof(uint64);
    uint64 pages_per_extent = trunk_pages_per_extent(trunk_cfg);
    while (
-      leaf_filter_cfg->index_size
+      filter_cfg->index_size
       <= (trunk_cfg->max_tuples_per_node / (addrs_per_page * pages_per_extent)))
    {
       platform_error_log("filter-index-size: %u is too small, "
                          "setting to %u\n",
-                         leaf_filter_cfg->index_size,
-                         leaf_filter_cfg->index_size * 2);
-      leaf_filter_cfg->index_size *= 2;
-      leaf_filter_cfg->log_index_size++;
+                         filter_cfg->index_size,
+                         filter_cfg->index_size * 2);
+      filter_cfg->index_size *= 2;
+      filter_cfg->log_index_size++;
    }
 }
 
