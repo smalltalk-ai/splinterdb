@@ -70,14 +70,15 @@ CTEST_TEARDOWN(splinterdb)
  */
 CTEST2(splinterdb, test_lookup_non_existent_key)
 {
-   memcpy(data->key, "foo", 3);
+   size_t key_len = 3;
+   memcpy(data->key, "foo", key_len);
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(data->kvs,
                                  &result,
                                  data->kvs_cfg.data_cfg.message_size,
                                  data->msg_buffer);
-   int rc = splinterdb_lookup(data->kvs, data->key, &result);
+   int rc = splinterdb_lookup_message(data->kvs, key_len, data->key, &result);
    ASSERT_EQUAL(
       0, rc, "splinterdb_lookup() of non-existent key failed, rc=%d\n", rc);
 
@@ -93,8 +94,9 @@ CTEST2(splinterdb, test_lookup_non_existent_key)
  */
 CTEST2(splinterdb, test_insert_lookup_delete)
 {
+   size_t key_len = 3;
    // Exercise INSERT of new key / value pair.
-   memcpy(data->key, "foo", 3);
+   memcpy(data->key, "foo", key_len);
    data_handle *msg  = (data_handle *)data->msg_buffer;
    msg->message_type = MESSAGE_TYPE_INSERT;
    msg->ref_count    = 1;
@@ -103,10 +105,11 @@ CTEST2(splinterdb, test_insert_lookup_delete)
    int         exp_len = strlen(exp_val);
    memcpy((void *)(msg->data), exp_val, exp_len);
 
-   int rc = splinterdb_insert(data->kvs,
-                              data->key,
-                              data->kvs_cfg.data_cfg.message_size,
-                              data->msg_buffer);
+   int rc = splinterdb_insert_message(data->kvs,
+                                      key_len,
+                                      data->key,
+                                      data->kvs_cfg.data_cfg.message_size,
+                                      data->msg_buffer);
    ASSERT_EQUAL(0,
                 rc,
                 "splinterdb_insert() of new key '%s' failed, rc=%d\n",
@@ -125,7 +128,7 @@ CTEST2(splinterdb, test_insert_lookup_delete)
                                  &result,
                                  data->kvs_cfg.data_cfg.message_size,
                                  data->msg_buffer);
-   rc = splinterdb_lookup(data->kvs, data->key, &result);
+   rc = splinterdb_lookup_message(data->kvs, key_len, data->key, &result);
    ASSERT_EQUAL(
       0, rc, "splinterdb_lookup() for key '%s' failed. rc=%d.", data->key, rc);
 
@@ -157,14 +160,15 @@ CTEST2(splinterdb, test_insert_lookup_delete)
 
    // Exercise DELETE of existing key should succeed.
    msg->message_type = MESSAGE_TYPE_DELETE;
-   rc                = splinterdb_insert(data->kvs,
-                          data->key,
-                          data->kvs_cfg.data_cfg.message_size,
-                          data->msg_buffer);
+   rc                = splinterdb_insert_message(data->kvs,
+                                  key_len,
+                                  data->key,
+                                  data->kvs_cfg.data_cfg.message_size,
+                                  data->msg_buffer);
    ASSERT_EQUAL(0, rc, "splinterdb_insert (for delete) failed, rc=%d. ", rc);
 
    // Lookup of now-deleted key should succeed, but not find the key
-   rc = splinterdb_lookup(data->kvs, data->key, &result);
+   rc = splinterdb_lookup_message(data->kvs, key_len, data->key, &result);
    ASSERT_EQUAL(0,
                 rc,
                 "splinterdb_lookup() for now-deleted key '%s' failed, rc=%d. ",
@@ -194,11 +198,12 @@ CTEST2(splinterdb, test_iterator)
 
    // Start exercising iterator interfaces.
    splinterdb_iterator *it = NULL;
-   rc = splinterdb_iterator_init(data->kvs, &it, NULL /* start key */);
+   rc = splinterdb_iterator_init(data->kvs, &it, 0, NULL /* start key */);
    ASSERT_EQUAL(0, rc, "Initializing iterator failed with rc=%d. ", rc);
 
    const char *current_key;
    const char *current_msg;
+   size_t      current_key_len;
    size_t      current_msg_len;
    int         i = 0;
    const int   max_val_size =
@@ -225,8 +230,8 @@ CTEST2(splinterdb, test_iterator)
          expected_key_len,
          data->kvs_cfg.data_cfg.key_size);
 
-      splinterdb_iterator_get_current(
-         it, &current_key, &current_msg_len, &current_msg);
+      splinterdb_iterator_get_current_message(
+         it, &current_key_len, &current_key, &current_msg_len, &current_msg);
       const char *current_val =
          (const char *)(((const data_handle *)current_msg)->data);
 
@@ -281,16 +286,18 @@ CTEST2(splinterdb, test_iterator)
 CTEST2(splinterdb, test_close_open_key_access)
 {
    // Exercise INSERT of new key / value pair.
-   memcpy(data->key, "foo", 3);
+   size_t key_len = 3;
+   memcpy(data->key, "foo", key_len);
    data_handle *msg  = (data_handle *)data->msg_buffer;
    msg->message_type = MESSAGE_TYPE_INSERT;
    msg->ref_count    = 1;
-   memcpy((void *)(msg->data), "bar", 3);
+   memcpy((void *)(msg->data), "bar", key_len);
 
-   int rc = splinterdb_insert(data->kvs,
-                              data->key,
-                              data->kvs_cfg.data_cfg.message_size,
-                              data->msg_buffer);
+   int rc = splinterdb_insert_message(data->kvs,
+                                      key_len,
+                                      data->key,
+                                      data->kvs_cfg.data_cfg.message_size,
+                                      data->msg_buffer);
 
    ASSERT_EQUAL(0,
                 rc,
@@ -304,7 +311,7 @@ CTEST2(splinterdb, test_close_open_key_access)
                                  data->kvs_cfg.data_cfg.message_size,
                                  data->msg_buffer);
 
-   rc = splinterdb_lookup(data->kvs, data->key, &result);
+   rc = splinterdb_lookup_message(data->kvs, key_len, data->key, &result);
 
    ASSERT_EQUAL(
       0, rc, "splinterdb_lookup() for key '%s' failed. rc=%d.", data->key, rc);
@@ -327,7 +334,7 @@ CTEST2(splinterdb, test_close_open_key_access)
                                  data->kvs_cfg.data_cfg.message_size,
                                  data->msg_buffer);
 
-   rc = splinterdb_lookup(data->kvs, data->key, &result);
+   rc = splinterdb_lookup_message(data->kvs, key_len, data->key, &result);
 
    ASSERT_EQUAL(
       0, rc, "splinterdb_lookup() failed after close/re-open; rc=%d ", rc);
@@ -354,7 +361,9 @@ setup_splinterdb(splinterdb **kvs, splinterdb_config *kvs_cfg)
    kvs_cfg->cache_size = Giga;      // see config.c: cache_capacity
    kvs_cfg->disk_size  = 30 * Giga; // see config.c: allocator_capacity
 
-   kvs_cfg->data_cfg = test_data_config;
+   kvs_cfg->data_cfg                = test_data_config;
+   kvs_cfg->data_cfg.key_size       = SPLINTERDB_MAX_KEY_SIZE;
+   kvs_cfg->data_cfg.max_key_length = SPLINTERDB_MAX_KEY_SIZE;
 
    rc = splinterdb_create(kvs_cfg, kvs);
    ASSERT_EQUAL(0, rc, "splinterdb_create() failed, rc=%d. ", rc);
@@ -400,8 +409,8 @@ do_inserts(const int          num_inserts,
          val_len,
          max_val_size);
 
-      rc = splinterdb_insert(
-         kvs, key, kvs_cfg->data_cfg.message_size, msg_buffer);
+      rc = splinterdb_insert_message(
+         kvs, key_len, key, kvs_cfg->data_cfg.message_size, msg_buffer);
       ASSERT_EQUAL(0, rc, "Insert failed for i=%d, rc=%d. ", i, rc);
    }
    return rc;

@@ -15,7 +15,6 @@
 #ifndef __DATA_H
 #define __DATA_H
 
-#include <string.h> // for memmove
 #include "splinterdb/limits.h"
 #include "splinterdb/platform_public.h"
 #include "splinterdb/public_util.h"
@@ -68,6 +67,20 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          char              *str,
                                          size_t             max_len);
 
+
+// Encodes a message from a type and (optionally) a value
+typedef int (*encode_message_fn)(message_type type,
+                                 const void  *value,
+                                 size_t       value_len,
+                                 void        *dst_msg_buffer,
+                                 size_t       dst_msg_buffer_len,
+                                 size_t      *out_encoded_len);
+
+// Extract the value from a message
+typedef int (*decode_message_value_fn)(size_t       msg_buffer_len,
+                                       const void  *msg_buffer,
+                                       const char **out_value,
+                                       size_t      *out_value_len);
 /*
  * ----------------------------------------------------------------------------
  * data_config: This structure defines the handshake between a
@@ -90,8 +103,11 @@ struct data_config {
    uint64 message_size;
 
    // FIXME: Planned for deprecation.
-   char min_key[MAX_KEY_SIZE];
-   char max_key[MAX_KEY_SIZE];
+   char   min_key[MAX_KEY_SIZE];
+   size_t min_key_length;
+
+   char   max_key[MAX_KEY_SIZE];
+   size_t max_key_length;
 
    key_compare_fn           key_compare;
    key_hash_fn              key_hash;
@@ -101,19 +117,15 @@ struct data_config {
    key_or_message_to_str_fn key_to_string;
    key_or_message_to_str_fn message_to_string;
 
+   // required by splinterdb_insert_value or splinterdb_delete
+   encode_message_fn encode_message;
+
+   // required by splinterdb_lookup and splinterdb_iterator_get_current_value
+   decode_message_value_fn decode_message_value;
+
    // additional context, available to the above callbacks
    void *context;
 };
 
-static inline bool
-data_validate_config(const data_config *cfg)
-{
-   bool bad =
-      (cfg->key_size == 0 || cfg->message_size == 0 || cfg->key_compare == NULL
-       || cfg->key_hash == NULL || cfg->merge_tuples == NULL
-       || cfg->merge_tuples_final == NULL || cfg->message_class == NULL
-       || cfg->key_to_string == NULL || cfg->message_to_string == NULL);
-   return !bad;
-}
 
 #endif // __DATA_H

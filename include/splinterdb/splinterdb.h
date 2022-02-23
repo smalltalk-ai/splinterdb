@@ -18,7 +18,11 @@
 
 #include "splinterdb/data.h"
 
-extern const char *BUILD_VERSION;
+
+// Hack to accomodate encoding variable-length keys
+#define SPLINTERDB_MAX_KEY_SIZE (MAX_KEY_SIZE - 1)
+
+const char * splinterdb_get_version();
 
 typedef struct {
    const char *filename;
@@ -112,11 +116,28 @@ splinterdb_register_thread(splinterdb *kvs);
 void
 splinterdb_deregister_thread(splinterdb *kvs);
 
+// Insert a key and value.
+// Relies on data_config->encode_message
 int
-splinterdb_insert(const splinterdb *kvs,
-                  char             *key,
-                  size_t            message_length,
-                  char             *message);
+splinterdb_insert_value(const splinterdb *kvsb,
+                        size_t            key_len,
+                        const char       *key,
+                        size_t            val_len,
+                        const char       *value);
+
+// Insert a custom message at the given key
+int
+splinterdb_insert_message(const splinterdb *kvs,
+                          size_t            key_length,
+                          const char       *key,
+                          size_t            message_length,
+                          const char       *message);
+
+
+// Delete a given key and associated value
+int
+splinterdb_delete(const splinterdb *kvsb, size_t key_len, const char *key);
+
 
 /**************
  * Lookups
@@ -129,7 +150,7 @@ splinterdb_insert(const splinterdb *kvs,
 
 /* Lookup results are stored in a splinterdb_lookup_result.
  */
-typedef struct splinterdb_lookup_result {
+typedef struct {
    char opaque[SPLINTERDB_LOOKUP_BUFSIZE];
 } splinterdb_lookup_result;
 
@@ -164,10 +185,36 @@ splinterdb_lookup_result_size(splinterdb_lookup_result *result); // IN
 void *
 splinterdb_lookup_result_data(splinterdb_lookup_result *result); // IN
 
+// Lookup the message for a given key
 int
-splinterdb_lookup(const splinterdb         *kvs,   // IN
-                  char                     *key,   // IN
-                  splinterdb_lookup_result *result // IN/OUT
+splinterdb_lookup_message(const splinterdb         *kvs,        // IN
+                          size_t                    key_length, // IN
+                          const char               *key,        // IN
+                          splinterdb_lookup_result *result      // IN/OUT
+);
+
+// Lookup the value for a given key
+//
+// Callers:
+// - Set val_max_len to the size of the val buffer
+//
+// Upon return:
+// - *found will be TRUE iff the key is present in the database.
+//
+// - If *found, then val will contain the first *val_bytes of the
+//   value associated with key.
+//
+// - *val_truncated will be true if the size of the value associated
+//   with key is larger than *val_bytes.
+int
+splinterdb_lookup_value(const splinterdb *kvsb,
+                        const size_t      key_len,        // IN
+                        const char       *key,            // IN
+                        size_t            val_buffer_len, // IN
+                        char             *out_val_buffer, // OUT
+                        size_t           *val_bytes,      // OUT
+                        _Bool            *val_truncated,  // OUT
+                        _Bool            *found           // OUT
 );
 
 /*
@@ -189,14 +236,21 @@ which means it is safe to proceed with other operations without checking
 status().
 
 On the other hand, if valid() == false, then there are two possibilities:
-(1) We reached the end of the data. In this case, status() == 0;
+(1) We reached the end of the data without error. In this case, status() == 0;
 (2) there is an error. In this case status() != 0;
+
 It is always a good practice to check status() if the iterator is invalidated.
+
+Iterators must be cleaned up via deinit.  Live iterators will block
+other operations from the same thread, including close.
+
+Known issue: a live iterator may block inserts and deletes from the same thread.
+
 
 Sample application code:
 
    splinterdb_iterator* it;
-   int rc = splinterdb_iterator_init(kvs, &it, NULL);
+   int rc = splinterdb_iterator_init(kvs, &it, 0, NULL);
    if (rc != 0) { ... handle error ... }
 
    const char* key;
@@ -208,14 +262,18 @@ Sample application code:
    // loop exit may mean error, or just that we've reached the end of the range
    rc = splinterdb_iterator_status(it);
    if (rc != 0) { ... handle error ... }
+
+   // Release resources acquired by the iterator
+   splinterdb_iterator_deinit(it);
 */
 
 typedef struct splinterdb_iterator splinterdb_iterator;
 
 int
-splinterdb_iterator_init(const splinterdb     *kvs,      // IN
-                         splinterdb_iterator **iter,     // OUT
-                         char                 *start_key // IN
+splinterdb_iterator_init(const splinterdb     *kvs,              // IN
+                         splinterdb_iterator **iter,             // OUT
+                         size_t                start_key_length, // IN
+                         const char           *start_key         // IN
 );
 
 void
@@ -237,11 +295,26 @@ splinterdb_iterator_next(splinterdb_iterator *iter);
 // Callers must not modify that memory
 //
 // If valid() == false, then behavior is undefined.
+// Always check valid() before calling this function.
 void
-splinterdb_iterator_get_current(splinterdb_iterator *iter,           // IN
-                                const char         **key,            // OUT
-                                size_t              *message_length, // OUT
-                                const char         **message         // OUT
+splinterdb_iterator_get_current_message(splinterdb_iterator *iter,       // IN
+                                        size_t              *key_length, // OUT
+                                        const char         **key,        // OUT
+                                        size_t      *message_length,     // OUT
+                                        const char **message             // OUT
+);
+
+// Sets *key and *value to the locations of the current item
+// Callers must not modify that memory
+//
+// If valid() == false, then behavior is undefined.
+// Always check valid() before calling this function.
+void
+splinterdb_iterator_get_current_value(splinterdb_iterator *iter,    // IN
+                                      size_t              *key_len, // OUT
+                                      const char         **key,     // OUT
+                                      size_t              *val_len, // OUT
+                                      const char         **value    // OUT
 );
 
 // Returns an error encountered from iteration, or 0 if successful.

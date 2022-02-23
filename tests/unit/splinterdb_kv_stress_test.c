@@ -15,24 +15,25 @@
 #include <pthread.h>
 
 #include "splinterdb/platform_public.h"
-#include "splinterdb/splinterdb_kv.h"
+#include "splinterdb/default_data_config.h"
+#include "splinterdb/splinterdb.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
-// Function Prototypes
-static int
-setup_splinterdb_kv(splinterdb_kv **kvsb, splinterdb_kv_cfg *cfg);
+#define TEST_KEY_SIZE   20
+#define TEST_VALUE_SIZE 116
 
+// Function Prototypes
 static void *
 exec_worker_thread(void *w);
 
 // Structure defining worker thread configuration.
 typedef struct {
-   uint32_t       num_inserts;
-   int            random_data;
-   splinterdb_kv *kvsb;
-   uint16_t       max_key_size;
-   uint16_t       max_value_size;
+   uint32_t    num_inserts;
+   int         random_data;
+   splinterdb *kvsb;
+   uint16_t    max_key_size;
+   uint16_t    max_value_size;
 } worker_config;
 
 /*
@@ -40,44 +41,50 @@ typedef struct {
  */
 CTEST_DATA(splinterdb_kv_stress)
 {
-   splinterdb_kv    *kvsb;
-   splinterdb_kv_cfg cfg;
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
 };
 
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_kv_stress)
 {
-   memset(&data->cfg, 0, sizeof(data->cfg));
-   data->cfg.cache_size     = 200 * Mega;
-   data->cfg.disk_size      = 900 * Mega;
-   data->cfg.max_key_size   = 22;
-   data->cfg.max_value_size = 116;
+   Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
+   Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
 
-   int rc = setup_splinterdb_kv(&data->kvsb, &data->cfg);
+   data->cfg = (splinterdb_config){
+      .filename   = TEST_DB_NAME,
+      .cache_size = 1000 * Mega,
+      .disk_size  = 9000 * Mega,
+   };
+   size_t max_key_size   = TEST_KEY_SIZE;
+   size_t max_value_size = TEST_VALUE_SIZE;
+   default_data_config_init(max_key_size, max_value_size, &data->cfg.data_cfg);
+
+   int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 }
 
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(splinterdb_kv_stress)
 {
-   splinterdb_kv_close(data->kvsb);
+   splinterdb_close(data->kvsb);
 }
 
 /*
  * ---------------------------------------------------------------------------
  * Test case that exercises inserts of large volume of data, single-threaded.
  * We exercise these Splinter APIs:
- *  - splinterdb_kv_insert()
- *  - splinterdb_kv_lookup() and
- *  - splinterdb_kv_delete()
+ *  - splinterdb_insert()
+ *  - splinterdb_lookup() and
+ *  - splinterdb_delete()
  */
 CTEST2(splinterdb_kv_stress, test_random_inserts_serial)
 {
    int random_data = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_data > 0);
 
-   char key_buf[SPLINTERDB_KV_MAX_KEY_SIZE]     = {0};
-   char value_buf[SPLINTERDB_KV_MAX_VALUE_SIZE] = {0};
+   char key_buf[TEST_KEY_SIZE]     = {0};
+   char value_buf[TEST_VALUE_SIZE] = {0};
 
    int rc = 0;
 
@@ -93,11 +100,8 @@ CTEST2(splinterdb_kv_stress, test_random_inserts_serial)
       result = read(random_data, value_buf, sizeof key_buf);
       ASSERT_TRUE(result >= 0);
 
-      rc = splinterdb_kv_insert(data->kvsb,
-                                key_buf,
-                                data->cfg.max_key_size,
-                                value_buf,
-                                data->cfg.max_value_size);
+      rc = splinterdb_insert_value(
+         data->kvsb, TEST_KEY_SIZE, key_buf, TEST_VALUE_SIZE, value_buf);
       ASSERT_EQUAL(rc, 0);
    }
 }
@@ -110,34 +114,20 @@ CTEST2(splinterdb_kv_stress, test_random_inserts_serial)
  */
 CTEST2(splinterdb_kv_stress, test_random_inserts_concurrent)
 {
-   // We need a configuration larger than the default setup.
-   // Teardown the default splinter, and create a new one.
-   splinterdb_kv_close(data->kvsb);
-
-   data->cfg.cache_size     = 1000 * Mega;
-   data->cfg.disk_size      = 9000 * Mega;
-   data->cfg.max_key_size   = 20;
-   data->cfg.max_value_size = 116;
-
-   int rc = setup_splinterdb_kv(&data->kvsb, &data->cfg);
-   ASSERT_EQUAL(0, rc);
-
    int random_data = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_data >= 0);
 
    worker_config wcfg = {
-      .num_inserts    = 1000 * 1000,
-      .random_data    = random_data,
-      .kvsb           = data->kvsb,
-      .max_key_size   = data->cfg.max_key_size,
-      .max_value_size = data->cfg.max_value_size,
+      .num_inserts = 1000 * 1000,
+      .random_data = random_data,
+      .kvsb        = data->kvsb,
    };
 
    const uint8_t num_threads = 4;
    pthread_t     thread_ids[num_threads];
 
    for (int i = 0; i < num_threads; i++) {
-      rc = pthread_create(&thread_ids[i], NULL, &exec_worker_thread, &wcfg);
+      int rc = pthread_create(&thread_ids[i], NULL, &exec_worker_thread, &wcfg);
       ASSERT_EQUAL(0, rc);
    }
 
@@ -148,7 +138,7 @@ CTEST2(splinterdb_kv_stress, test_random_inserts_concurrent)
 
    for (int i = 0; i < num_threads; i++) {
       void *thread_rc;
-      rc = pthread_join(thread_ids[i], &thread_rc);
+      int   rc = pthread_join(thread_ids[i], &thread_rc);
       ASSERT_EQUAL(0, rc);
       if (thread_rc != 0) {
          fprintf(stderr,
@@ -167,27 +157,6 @@ CTEST2(splinterdb_kv_stress, test_random_inserts_concurrent)
  * ********************************************************************************
  */
 
-static int
-setup_splinterdb_kv(splinterdb_kv **kvsb, splinterdb_kv_cfg *cfg)
-{
-   Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
-
-   *cfg = (splinterdb_kv_cfg){
-      .filename       = TEST_DB_NAME,
-      .cache_size     = (cfg->cache_size) ? cfg->cache_size : Mega,
-      .disk_size      = (cfg->disk_size) ? cfg->disk_size : 30 * Mega,
-      .max_key_size   = (cfg->max_key_size) ? cfg->max_key_size : 21,
-      .max_value_size = (cfg->max_value_size) ? cfg->max_value_size : 16,
-      .key_comparator = cfg->key_comparator,
-      .key_comparator_context = cfg->key_comparator_context,
-   };
-
-   int rc = splinterdb_kv_create(cfg, kvsb);
-   ASSERT_EQUAL(rc, 0);
-
-   return rc;
-}
 
 /*
  * -------------------------------------------------------------------------
@@ -201,17 +170,15 @@ setup_splinterdb_kv(splinterdb_kv **kvsb, splinterdb_kv_cfg *cfg)
 static void *
 exec_worker_thread(void *w)
 {
-   char key_buf[SPLINTERDB_KV_MAX_KEY_SIZE]     = {0};
-   char value_buf[SPLINTERDB_KV_MAX_VALUE_SIZE] = {0};
+   char key_buf[TEST_KEY_SIZE]     = {0};
+   char value_buf[TEST_VALUE_SIZE] = {0};
 
-   worker_config *wcfg           = (worker_config *)w;
-   uint32_t       num_inserts    = wcfg->num_inserts;
-   int            random_data    = wcfg->random_data;
-   splinterdb_kv *kvsb           = wcfg->kvsb;
-   uint16_t       max_key_size   = wcfg->max_key_size;
-   uint16_t       max_value_size = wcfg->max_value_size;
+   worker_config *wcfg        = (worker_config *)w;
+   uint32_t       num_inserts = wcfg->num_inserts;
+   int            random_data = wcfg->random_data;
+   splinterdb    *kvsb        = wcfg->kvsb;
 
-   splinterdb_kv_register_thread(kvsb);
+   splinterdb_register_thread(kvsb);
 
    pthread_t thread_id = pthread_self();
 
@@ -224,8 +191,8 @@ exec_worker_thread(void *w)
       result = read(random_data, value_buf, sizeof value_buf);
       ASSERT_TRUE(result >= 0);
 
-      rc = splinterdb_kv_insert(
-         kvsb, key_buf, max_key_size, value_buf, max_value_size);
+      rc = splinterdb_insert_value(
+         kvsb, TEST_KEY_SIZE, key_buf, TEST_VALUE_SIZE, value_buf);
       ASSERT_EQUAL(0, rc);
 
       if (i && (i % 100000 == 0)) {
@@ -233,6 +200,6 @@ exec_worker_thread(void *w)
       }
    }
 
-   splinterdb_kv_deregister_thread(kvsb);
+   splinterdb_deregister_thread(kvsb);
    return 0;
 }

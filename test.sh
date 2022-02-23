@@ -94,8 +94,8 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    start_seconds=$SECONDS
 
    set -x
-   bin/unit/splinterdb_kv_test
    bin/unit/splinterdb_test
+   bin/unit/splinterdb_kv_test
    bin/unit/btree_test
    bin/unit/util_test
    bin/unit/misc_test

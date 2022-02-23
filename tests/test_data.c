@@ -174,13 +174,14 @@ test_data_message_to_string(const data_config *cfg,
    debug_hex_encode(str, len, raw_data, raw_data_len);
 }
 
-data_config test_data_config = {
+const data_config test_data_config = {
    .key_size           = 24,
    .message_size       = 24,
    .min_key            = {0},
    .max_key            = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+   .max_key_length     = 24,
    .key_compare        = test_data_key_cmp,
    .key_hash           = platform_hash32,
    .key_to_string      = test_data_key_to_string,
