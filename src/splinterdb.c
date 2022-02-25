@@ -730,24 +730,44 @@ splinterdb_lookup_result_deinit(splinterdb_lookup_result *result) // IN
 }
 
 _Bool
-splinterdb_lookup_result_found(splinterdb_lookup_result *result) // IN
+splinterdb_lookup_result_found(const splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
    return trunk_lookup_found(&_result->value);
 }
 
 size_t
-splinterdb_lookup_result_size(splinterdb_lookup_result *result) // IN
+splinterdb_lookup_result_size(const splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
    return writable_buffer_length(&_result->value);
 }
 
 void *
-splinterdb_lookup_result_data(splinterdb_lookup_result *result) // IN
+splinterdb_lookup_result_data(const splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
    return writable_buffer_data(&_result->value);
+}
+
+int
+splinterdb_lookup_result_parse(const splinterdb               *kvs,
+                               const splinterdb_lookup_result *result, // IN
+                               _Bool                          *found,  // OUT
+                               size_t      *value_size,                // OUT
+                               const char **value)
+{
+
+   *found = splinterdb_lookup_result_found(result);
+   if (!*found) {
+      return 0;
+   }
+
+   return kvs->app_data_cfg.decode_message_value(
+      splinterdb_lookup_result_size(result),
+      splinterdb_lookup_result_data(result),
+      value,
+      value_size);
 }
 
 /*
@@ -786,6 +806,16 @@ splinterdb_lookup_message(const splinterdb         *kvs,        // IN
 
    status = trunk_lookup(kvs->spl, key_buffer, &_result->value);
    return platform_status_to_int(status);
+}
+
+// TODO: temporary shim while we refactor
+int
+splinterdb_lookup(const splinterdb         *kvs,        // IN
+                  size_t                    key_length, // IN
+                  const char               *key,        // IN
+                  splinterdb_lookup_result *result)     // IN/OUT
+{
+   return splinterdb_lookup_message(kvs, key_length, key, result);
 }
 
 

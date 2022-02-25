@@ -78,7 +78,7 @@ CTEST2(splinterdb, test_lookup_non_existent_key)
                                  &result,
                                  data->kvs_cfg.data_cfg.message_size,
                                  data->msg_buffer);
-   int rc = splinterdb_lookup_message(data->kvs, key_len, data->key, &result);
+   int rc = splinterdb_lookup(data->kvs, key_len, data->key, &result);
    ASSERT_EQUAL(
       0, rc, "splinterdb_lookup() of non-existent key failed, rc=%d\n", rc);
 
@@ -128,7 +128,7 @@ CTEST2(splinterdb, test_insert_lookup_delete)
                                  &result,
                                  data->kvs_cfg.data_cfg.message_size,
                                  data->msg_buffer);
-   rc = splinterdb_lookup_message(data->kvs, key_len, data->key, &result);
+   rc = splinterdb_lookup(data->kvs, key_len, data->key, &result);
    ASSERT_EQUAL(
       0, rc, "splinterdb_lookup() for key '%s' failed. rc=%d.", data->key, rc);
 
@@ -168,7 +168,7 @@ CTEST2(splinterdb, test_insert_lookup_delete)
    ASSERT_EQUAL(0, rc, "splinterdb_insert (for delete) failed, rc=%d. ", rc);
 
    // Lookup of now-deleted key should succeed, but not find the key
-   rc = splinterdb_lookup_message(data->kvs, key_len, data->key, &result);
+   rc = splinterdb_lookup(data->kvs, key_len, data->key, &result);
    ASSERT_EQUAL(0,
                 rc,
                 "splinterdb_lookup() for now-deleted key '%s' failed, rc=%d. ",
@@ -311,7 +311,7 @@ CTEST2(splinterdb, test_close_open_key_access)
                                  data->kvs_cfg.data_cfg.message_size,
                                  data->msg_buffer);
 
-   rc = splinterdb_lookup_message(data->kvs, key_len, data->key, &result);
+   rc = splinterdb_lookup(data->kvs, key_len, data->key, &result);
 
    ASSERT_EQUAL(
       0, rc, "splinterdb_lookup() for key '%s' failed. rc=%d.", data->key, rc);
@@ -334,7 +334,7 @@ CTEST2(splinterdb, test_close_open_key_access)
                                  data->kvs_cfg.data_cfg.message_size,
                                  data->msg_buffer);
 
-   rc = splinterdb_lookup_message(data->kvs, key_len, data->key, &result);
+   rc = splinterdb_lookup(data->kvs, key_len, data->key, &result);
 
    ASSERT_EQUAL(
       0, rc, "splinterdb_lookup() failed after close/re-open; rc=%d ", rc);

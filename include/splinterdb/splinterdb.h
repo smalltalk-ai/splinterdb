@@ -178,13 +178,30 @@ void
 splinterdb_lookup_result_deinit(splinterdb_lookup_result *result); // IN
 
 _Bool
-splinterdb_lookup_result_found(splinterdb_lookup_result *result); // IN
+splinterdb_lookup_result_found(const splinterdb_lookup_result *result); // IN
 
 size_t
-splinterdb_lookup_result_size(splinterdb_lookup_result *result); // IN
+splinterdb_lookup_result_size(const splinterdb_lookup_result *result); // IN
 
 void *
-splinterdb_lookup_result_data(splinterdb_lookup_result *result); // IN
+splinterdb_lookup_result_data(const splinterdb_lookup_result *result); // IN
+
+// Helper to parse out value from lookup results
+int
+splinterdb_lookup_result_parse(const splinterdb               *kvs,
+                               const splinterdb_lookup_result *result, // IN
+                               _Bool                          *found,  // OUT
+                               size_t      *value_size,                // OUT
+                               const char **value);
+
+
+// Lookup the message for a given key
+int
+splinterdb_lookup(const splinterdb         *kvs,        // IN
+                  size_t                    key_length, // IN
+                  const char               *key,        // IN
+                  splinterdb_lookup_result *result      // IN/OUT
+);
 
 // Lookup the message for a given key
 int

@@ -73,10 +73,6 @@ CTEST_TEARDOWN(splinterdb_kv_stress)
 /*
  * ---------------------------------------------------------------------------
  * Test case that exercises inserts of large volume of data, single-threaded.
- * We exercise these Splinter APIs:
- *  - splinterdb_insert()
- *  - splinterdb_lookup() and
- *  - splinterdb_delete()
  */
 CTEST2(splinterdb_kv_stress, test_random_inserts_serial)
 {
