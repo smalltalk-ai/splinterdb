@@ -22,7 +22,8 @@
 // Hack to accomodate encoding variable-length keys
 #define SPLINTERDB_MAX_KEY_SIZE (MAX_KEY_SIZE - 1)
 
-const char * splinterdb_get_version();
+const char *
+splinterdb_get_version();
 
 typedef struct {
    const char *filename;
