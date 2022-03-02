@@ -8427,12 +8427,12 @@ trunk_config_init(trunk_config *trunk_cfg,
    trunk_cfg->target_leaf_tuples = trunk_cfg->max_tuples_per_node / 2;
 
    // filter config settings
-   filter_cfg->cache_cfg  = cache_cfg;
+   filter_cfg->cache_cfg = cache_cfg;
 
-   filter_cfg->index_size = filter_index_size;
-   filter_cfg->seed       = 42;
-   filter_cfg->hash       = trunk_cfg->data_cfg->key_hash;
-   filter_cfg->data_cfg   = trunk_cfg->data_cfg;
+   filter_cfg->index_size     = filter_index_size;
+   filter_cfg->seed           = 42;
+   filter_cfg->hash           = trunk_cfg->data_cfg->key_hash;
+   filter_cfg->data_cfg       = trunk_cfg->data_cfg;
    filter_cfg->log_index_size = 31 - __builtin_clz(filter_cfg->index_size);
 
    uint64 filter_max_fingerprints = trunk_cfg->max_tuples_per_node;
@@ -8480,9 +8480,8 @@ trunk_config_init(trunk_config *trunk_cfg,
     */
    uint64 addrs_per_page   = trunk_page_size(trunk_cfg) / sizeof(uint64);
    uint64 pages_per_extent = trunk_pages_per_extent(trunk_cfg);
-   while (
-      filter_cfg->index_size
-      <= (trunk_cfg->max_tuples_per_node / (addrs_per_page * pages_per_extent)))
+   while (filter_cfg->index_size <= (trunk_cfg->max_tuples_per_node
+                                     / (addrs_per_page * pages_per_extent)))
    {
       platform_error_log("filter-index-size: %u is too small, "
                          "setting to %u\n",
