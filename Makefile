@@ -120,8 +120,8 @@ tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 release: .release all
 	rm -f .debug .debug-log
 
-debug: CFLAGS = -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
-debug: LDFLAGS = -g $(DEFAULT_LDFLAGS)
+debug: CFLAGS += -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
+debug: LDFLAGS += -g $(DEFAULT_LDFLAGS)
 debug: .debug all
 	rm -f .release .debug-log
 

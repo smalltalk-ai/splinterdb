@@ -515,25 +515,19 @@ typedef struct ONDISK trunk_pivot_data {
    int64          srq_idx;      // index in the space rec queue
 } trunk_pivot_data;
 
+/*
+ * Used to specify compaction bundle "task" request. These enums specify
+ * the compaction bundle request type. (Not disk-resident.)
+ */
 typedef enum trunk_compaction_type {
+   TRUNK_COMPACTION_TYPE_INVALID = 0,
+   TRUNK_COMPACTION_TYPE_MEMTABLE,
    TRUNK_COMPACTION_TYPE_FLUSH,
    TRUNK_COMPACTION_TYPE_LEAF_SPLIT,
    TRUNK_COMPACTION_TYPE_SINGLE_LEAF_SPLIT,
    TRUNK_COMPACTION_TYPE_SPACE_REC,
    NUM_TRUNK_COMPACTION_TYPES,
 } trunk_compaction_type;
-
-/*
- * Used to specify compaction bundle "task" request. These enums specify
- * the compaction bundle request type. (Not disk-resident.)
- */
-typedef enum splinter_compaction_type {
-   SPLINTER_COMPACTION_TYPE_FLUSH,
-   SPLINTER_COMPACTION_TYPE_LEAF_SPLIT,
-   SPLINTER_COMPACTION_TYPE_SINGLE_LEAF_SPLIT,
-   SPLINTER_COMPACTION_TYPE_SPACE_REC,
-   NUM_SPLINTER_COMPACTION_TYPES,
-} splinter_compaction_type;
 
 // arguments to a compact_bundle job
 struct trunk_compact_bundle_req {
@@ -3000,6 +2994,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    cmt->req         = TYPED_ZALLOC(spl->heap_id, cmt->req);
    cmt->req->spl    = spl;
    cmt->req->fp_arr = req.fingerprint_arr;
+   cmt->req->type   = TRUNK_COMPACTION_TYPE_MEMTABLE;
    uint32 *dup_fp_arr =
       TYPED_ARRAY_MALLOC(spl->heap_id, dup_fp_arr, req.num_tuples);
    memmove(dup_fp_arr, cmt->req->fp_arr, req.num_tuples * sizeof(uint32));
@@ -3384,12 +3379,7 @@ trunk_dec_filter(trunk_handle *spl, routing_filter *filter)
 /*
  * Scratch space used for filter building.
  */
-typedef struct trunk_filter_req {
-   uint64         addr;
-   uint16         height;
-   uint16         bundle_no;
-   uint64         generation;
-   uint64         max_pivot_generation;
+typedef struct trunk_filter_scratch {
    bool           should_build[TRUNK_MAX_PIVOTS];
    routing_filter old_filter[TRUNK_MAX_PIVOTS];
    uint16         value[TRUNK_MAX_PIVOTS];
@@ -3402,12 +3392,7 @@ trunk_filter_req_init(trunk_compact_bundle_req *compact_req,
                       trunk_filter_req         *filter_req)
 {
    ZERO_CONTENTS(filter_req);
-   filter_req->addr                 = compact_req->addr;
-   filter_req->height               = compact_req->height;
-   filter_req->bundle_no            = compact_req->bundle_no;
-   filter_req->generation           = compact_req->generation;
-   filter_req->max_pivot_generation = compact_req->max_pivot_generation;
-   filter_req->fp_arr               = compact_req->fp_arr;
+   filter_req->fp_arr = compact_req->fp_arr;
 }
 
 static inline page_handle *
@@ -3516,7 +3501,7 @@ trunk_prepare_build_filter(trunk_handle             *spl,
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (trunk_bundle_live_for_pivot(
-             spl, node, filter_req->bundle_no, pivot_no)) {
+             spl, node, compact_req->bundle_no, pivot_no)) {
          uint64 pos = trunk_process_generation_to_pos(
             spl, compact_req, pdata->generation);
          platform_assert(pos != TRUNK_MAX_PIVOTS);
@@ -3557,7 +3542,7 @@ trunk_build_filters(trunk_handle             *spl,
    uint16   height;
    if (spl->cfg.use_stats) {
       tid                = platform_get_tid();
-      height             = filter_req->height;
+      height             = compact_req->height;
       filter_build_start = platform_get_timestamp();
    }
 
@@ -3618,7 +3603,7 @@ trunk_replace_routing_filter(trunk_handle             *spl,
       uint64            pos =
          trunk_process_generation_to_pos(spl, compact_req, pdata->generation);
       if (!trunk_bundle_live_for_pivot(
-             spl, node, filter_req->bundle_no, pivot_no)) {
+             spl, node, compact_req->bundle_no, pivot_no)) {
          if (pos != TRUNK_MAX_PIVOTS && filter_req->filter[pos].addr != 0) {
             trunk_dec_filter(spl, &filter_req->filter[pos]);
             ZERO_CONTENTS(&filter_req->filter[pos]);
@@ -3626,7 +3611,7 @@ trunk_replace_routing_filter(trunk_handle             *spl,
          continue;
       }
       platform_assert(pos != TRUNK_MAX_PIVOTS);
-      debug_assert(pdata->generation < filter_req->max_pivot_generation);
+      debug_assert(pdata->generation < compact_req->max_pivot_generation);
       trunk_dec_filter(spl, &pdata->filter);
       pdata->filter = filter_req->filter[pos];
       ZERO_CONTENTS(&filter_req->filter[pos]);
@@ -3690,6 +3675,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          return;
       }
 
+      debug_assert(trunk_verify_node(spl, node));
       trunk_filter_req filter_req = {0};
       trunk_prepare_build_filter(spl, compact_req, &filter_req, node);
       uint64 filter_generation = trunk_generation(spl, node);
@@ -3713,18 +3699,19 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          }
          trunk_node_lock(spl, node);
          trunk_replace_routing_filter(spl, compact_req, &filter_req, node);
-         if (trunk_bundle_live(spl, node, filter_req.bundle_no)) {
-            trunk_clear_bundle(spl, node, filter_req.bundle_no);
+         if (trunk_bundle_live(spl, node, compact_req->bundle_no)) {
+            trunk_clear_bundle(spl, node, compact_req->bundle_no);
          }
          trunk_node_unlock(spl, node);
          trunk_node_unclaim(spl, node);
-         filter_req.addr = trunk_next_addr(spl, node);
-         generation      = trunk_generation(spl, node);
+         compact_req->addr = trunk_next_addr(spl, node);
+         generation        = trunk_generation(spl, node);
          debug_assert(trunk_verify_node(spl, node));
          if (generation != filter_generation) {
-            trunk_log_stream("replace_filter split to %lu\n", filter_req.addr);
-            debug_assert(filter_req.height != 0);
-            debug_assert(filter_req.addr != 0);
+            trunk_log_stream("replace_filter split to %lu\n",
+                             compact_req->addr);
+            debug_assert(compact_req->height != 0);
+            debug_assert(compact_req->addr != 0);
             trunk_node_unget(spl, &node);
          }
       } while (generation != filter_generation);
@@ -5242,6 +5229,7 @@ trunk_split_leaf(trunk_handle *spl,
    req->max_pivot_generation = trunk_pivot_generation(spl, leaf);
    req->pivot_generation[0]  = trunk_pivot_generation(spl, leaf) - 1;
    req->input_pivot_count[0] = trunk_pivot_num_tuples(spl, leaf, 0);
+   req->type                 = comp_type;
 
    // issue compact_bundle for leaf and release
    trunk_default_log(
@@ -7277,6 +7265,22 @@ trunk_verify_node(trunk_handle *spl, page_handle *node)
       }
    }
 
+   // check that each pivot with nontrivial compacted branches has a filter
+   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+      if (trunk_pivot_whole_branch_count(spl, node, pdata) != 0) {
+         if (pdata->filter.addr == 0) {
+            platform_error_log(
+               "trunk_verify: node with whole branches doesn't have filter\n");
+            platform_error_log("addr: %lu\n", addr);
+            platform_assert(0);
+            goto out;
+         }
+      }
+   }
+
+
+   // check that leaves only have a single pivot
    if (trunk_height(spl, node) == 0) {
       if (trunk_num_children(spl, node) != 1) {
          platform_error_log("trunk_verify: leaf with multiple children\n");
