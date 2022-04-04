@@ -663,7 +663,7 @@ static inline void                 trunk_node_unlock               (trunk_handle
 page_handle *                      trunk_alloc                     (trunk_handle *spl, uint64 height);
 static inline char *               trunk_get_pivot                 (trunk_handle *spl, page_handle *node, uint16 pivot_no);
 static inline trunk_pivot_data    *trunk_get_pivot_data            (trunk_handle *spl, page_handle *node, uint16 pivot_no);
-static inline uint16               trunk_find_pivot                (trunk_handle *spl, page_handle *node, const char *key, lookup_type comp);
+static inline uint16               trunk__find_pivot                (trunk_handle *spl, page_handle *node, const char *key, lookup_type comp, int lineno);
 platform_status                    trunk_add_pivot                 (trunk_handle *spl, page_handle *parent, page_handle *child, uint16 pivot_no);
 static inline uint16               trunk_num_children              (trunk_handle *spl, page_handle *node);
 static inline uint16               trunk_num_pivot_keys            (trunk_handle *spl, page_handle *node);
@@ -1347,11 +1347,14 @@ trunk_update_lowerbound(uint16 *lo, uint16 *mid, int cmp, lookup_type comp)
  * comp, e.g. if comp == greater_than, find_pivot finds the smallest pivot
  * which is greater than key. It returns the found pivot's index.
  */
+#define trunk_find_pivot(spl, node, key, comp)                                 \
+   trunk__find_pivot((spl), (node), (key), (comp), __LINE__)
 static inline uint16
-trunk_find_pivot(trunk_handle *spl,
-                 page_handle  *node,
-                 const char   *key,
-                 lookup_type   comp)
+trunk__find_pivot(trunk_handle *spl,
+                  page_handle  *node,
+                  const char   *key,
+                  lookup_type   comp,
+                  int           lineno)
 {
    debug_assert(node != NULL);
    uint16 lo_idx = 0, mid_idx;
@@ -1370,7 +1373,14 @@ trunk_find_pivot(trunk_handle *spl,
             debug_assert(cmp < 0);
             return 0;
          case less_than_or_equal:
-            debug_assert(cmp <= 0);
+            debug_assert(cmp <= 0,
+                         "%d:cmp=%d, key='%.*s' ['%.*s']",
+                         lineno,
+                         cmp,
+                         (int)trunk_key_size(spl),
+                         key,
+                         (int)*key,
+                         (key + 1));
             return 0;
          case greater_than:
             return cmp > 0 ? 0 : 1;
@@ -1492,7 +1502,9 @@ trunk_add_pivot_new_root(trunk_handle *spl,
 {
    const char *pivot_key                       = trunk_get_pivot(spl, child, 0);
    __attribute__((unused)) const char *min_key = spl->cfg.data_cfg->min_key;
-   debug_assert(trunk_key_compare(spl, pivot_key, min_key) == 0);
+   __attribute__((unused)) const int   key_cmp_rv =
+      trunk_key_compare(spl, pivot_key, min_key);
+   debug_assert((key_cmp_rv == 0), "key_cmp_rv=%d\n", key_cmp_rv);
 
    const char *max_key = spl->cfg.data_cfg->max_key;
    trunk_set_initial_pivots(spl, parent, pivot_key, max_key);
@@ -5764,6 +5776,10 @@ trunk_range_iterator_init(trunk_handle         *spl,
    // index btrees
    uint16 height = trunk_height(spl, node);
    for (uint16 h = height; h > 0; h--) {
+      int8 key_len = *range_itor->min_key;
+      platform_default_log("Dbg> range_itor->min_key='%.*s'\n",
+                           key_len, //  (int)trunk_key_size(spl),
+                           (range_itor->min_key + 1));
       uint16 pivot_no =
          trunk_find_pivot(spl, node, range_itor->min_key, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, node));

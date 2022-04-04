@@ -8,8 +8,8 @@
  * What's new beyond previous splinterdb_iterators_example.c?
  *
  * In this program, we show the application of user-specified custom
- * key-comparison routines. The 'key' here the 4-part IP-address, which
- * is stored as the string seen from 'ping'; i.e. "208.80.154.232"
+ * key-comparison routines. The 'key' here is the 4-part IP-address, which
+ * is stored as the string seen from 'ping'; i.e. "208.80.154.232" .
  * To illustrate the use of user-defined keys, we then provide a
  * sort-comparison routine, which splits up the IP-address to its
  * constituent parts, and does a numeric comparison of each 1-byte value.
@@ -259,6 +259,11 @@ ip4_ipaddr_keycmp(const char  *key1,
                   const char  *key2,
                   const size_t key2_len)
 {
+   // Deal with the case of initial keys, where one of the pair maybe uninit'ed
+   if ((key1_len == 0) || (key2_len == 0)) {
+      return KEYCMP_RV_KEY1_EQ_KEY2;
+   }
+
    int key1_fields[APP_IPV4_NUM_FIELDS];
    int key2_fields[APP_IPV4_NUM_FIELDS];
 
