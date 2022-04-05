@@ -5776,10 +5776,6 @@ trunk_range_iterator_init(trunk_handle         *spl,
    // index btrees
    uint16 height = trunk_height(spl, node);
    for (uint16 h = height; h > 0; h--) {
-      int8 key_len = *range_itor->min_key;
-      platform_default_log("Dbg> range_itor->min_key='%.*s'\n",
-                           key_len, //  (int)trunk_key_size(spl),
-                           (range_itor->min_key + 1));
       uint16 pivot_no =
          trunk_find_pivot(spl, node, range_itor->min_key, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, node));
