@@ -1,5 +1,10 @@
 {{ $latest := (cond (.Site.Params.docs_versioning) .Site.Params.docs_latest "") }}
+{{ $js := resources.Get "js/main.js"}}
+
 <header>
+	<script src="{{ $js.RelPermalink }}"></script>
+	<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.1.3/dist/js/bootstrap.min.js" integrity="sha384-ChfqqxuZUCnJSK3+MXmPNIyE6ZbWh2IMqE241rYiqJxyMiZ6OW/JmZQ5stwEULTy" crossorigin="anonymous"></script>
+
 	<div class="wrapper">
 		<a href="{{ .Site.BaseURL }}"><img class="image" src="/img/splinterdb-logo.svg" alt="Logo" width="245" /></a>
 		<ul class="desktop-links">
