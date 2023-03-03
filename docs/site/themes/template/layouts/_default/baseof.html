@@ -18,11 +18,8 @@
 	{{ with .Site.Params.author }}<meta name="author" content="{{ . }}">{{ end }}
 	{{ $options := (dict "targetPath" "css/style.css" "outputStyle" "compressed" "enableSourceMap" true "includePaths" (slice "node_modules/myscss")) }}
 	{{ $style := resources.Get "scss/site.scss" | resources.ToCSS $options }}
-	{{ $slick := resources.Get "js/slick.min.js"}}
-
 	<link rel="stylesheet" href="{{ $style.Permalink }}" integrity="{{ $style.Data.Integrity }}" media="screen">
 	<link rel="icon" type="image/png" href="/img/favicon.png">
-	<script src="{{ $slick.RelPermalink }}"></script>
 	<script src="{{ "js/main.js" | relURL }}" type="text/javascript"></script>
 	{{ with .OutputFormats.Get "RSS" -}}
 		{{ printf `<link rel="%s" type="%s" href="%s" title="%s">` .Rel .MediaType.Type .RelPermalink $.Site.Title | safeHTML }}
@@ -33,16 +30,9 @@
 	{{ block "main" . }}{{ end }}
 	{{ partial "getting-started" . }}
 	{{ partial "footer" . }}
-    {{ if .Site.Params.docs_search }}
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/docsearch.js@2/dist/cdn/docsearch.min.js"></script>
-    <script type="text/javascript"> docsearch({
-        apiKey: '{{ .Site.Params.Docs_search_api_key }}',
-        indexName: '{{ .Site.Params.Docs_search_index_name }}',
-        inputSelector: '.docsearch-input',
-        algoliaOptions: {'facetFilters': ["version:{{ .CurrentSection.Params.version }}"]},
-        debug: false // Set debug to true if you want to inspect the dropdown
-      });
-    </script>
-    {{ end }}
+	
+	<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.1.3/dist/js/bootstrap.min.js" integrity="sha384-ChfqqxuZUCnJSK3+MXmPNIyE6ZbWh2IMqE241rYiqJxyMiZ6OW/JmZQ5stwEULTy" crossorigin="anonymous"></script>
+	{{ $slick := resources.Get "js/slick.min.js"}}
+	<script src="{{ $slick.RelPermalink }}"></script>
 </body>
 </html>

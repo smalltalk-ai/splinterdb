@@ -1,6 +1,6 @@
 baseURL: "/"
 languageCode: "en-us"
-title: "SplinterDB"
+title: "The Howlers"
 theme: "template"
 outputs:
   home: [ "HTML", "REDIRECTS" ]
@@ -21,31 +21,12 @@ markup:
     tabWidth: 4
 menu:
   docs:
-  - name: Overview
-    url: /docs/
-    weight: 100
-  - name: Building SplinterDB
-    url: /docs/build/
-    name: Docker-based Development
-    url: /docs/docker/
-  - name: User's Guide
-    url: /docs/usage/
-  - name: Testing SplinterDB
-    url: /docs/testing/
-  - name: Limitations
-    url: /docs/limitations/
-  - name: Diagnostics
-    url: /docs/diagnostics/
-  - name: Contributing
-    url: /docs/contributing/
-  - name: Code of Conduct
-    url: /docs/code-of-conduct/
 params:
-  twitter_url: "https://twitter.com/splinterdbnews"
-  github_url: "https://github.com/vmware/splinterdb"
-  slack_url: "https://splinterdb.slack.com"
-  googlegroups_url: "https://groups.google.com/g/splinterdb"
-  github_base_url: "https://github.com/vmware/splinterdb"
+  twitter_url: "https://twitter.com"
+  github_url: "https://github.com"
+  slack_url: ""
+  googlegroups_url: "https://groups.google.com"
+  github_base_url: "https://github.com/vmware/"
   use_advanced_docs: true
   docs_right_sidebar: true
   docs_search: false
