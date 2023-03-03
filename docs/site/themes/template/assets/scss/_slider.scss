@@ -1,0 +1,83 @@
+.carousel-wrapper {
+  position: relative;
+  .carousel {
+    column-gap: 25px;
+
+    .slide {
+      width: 309px;
+      img {
+        width: 100%;
+        height: 210px;
+        box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.25);
+        background: #D9D9D9;
+
+      @include breakpoint(small) {
+        height: auto;
+      }
+
+      }
+      .headline {
+        font-size: 12px;
+        color: #1D428A;
+      }
+      .body-copy {
+        font-size: 16px;
+        color: #717074;
+      }
+    }
+    .slick-dots li {
+      button:before {
+        content: '';
+      }
+    }
+    .slick-dots li {
+      button {
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        display: block;
+        background-color: #D9D9D9;
+      }
+      &.slick-active {
+        button {
+          background-color: #1D428A;
+        }
+      }
+    }
+
+    .slick-slide {
+      margin: 0 13px;
+    }
+
+    /* the parent */
+    .slick-list {
+      margin: 0 -13px;
+    }
+    .slick-list {
+      box-sizing: initial;
+      padding: 25px 0px;
+    }
+  }
+  .btn-prev,
+  .btn-next {
+    width: 15px;
+    height: 24px;
+    background-repeat: no-repeat;
+    position: absolute;
+    top: 39%;
+    &:hover {
+      cursor: pointer;
+    }
+  } 
+
+  .btn-prev {
+    background-image: url( '/img/btn-prev.svg' );
+    left: -50px;
+  }
+
+  .btn-next {
+    background-image: url( '/img/btn-next.svg' );
+    right: -50px;
+  }
+}
+
