@@ -66,6 +66,31 @@ document.addEventListener('DOMContentLoaded', function(){
         $featuredVideo.attr('src', '').hide();
     });
 
+
+    // // Initialize slick carousel
+    $('.carousel').not('.slick-initialized').slick({
+        infinite: true,
+        slidesToShow: 3,
+        slidesToScroll: 3,
+        dots: true,
+        nextArrow: $('.btn-next'),
+        prevArrow: $('.btn-prev'),
+        responsive: [
+          {
+            breakpoint: 768,
+            settings: {
+              slidesToShow: 1,
+              centerMode: false, /* set centerMode to false to show complete slide instead of 3 */
+              slidesToScroll: 1
+            }
+          }
+        ]
+    });
+
+
+
+
+
     // hamburger
     var hamburger = document.getElementById('mobileNavToggle');
     var docsMobileButton = document.getElementById('mobileDocsNavToggle');
