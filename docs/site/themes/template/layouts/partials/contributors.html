@@ -1,37 +1,35 @@
 <div class="team">
   <div class="wrapper">
-      <h2>Imperdiet sed euismod nisi:</h2>
-      <div class="grid three">
-        {{ $contributors := .Site.GetPage "/contributors" }}
-        {{ range $contributors.Resources }}
-          <div class="bio">
-              <div class="image"><img class="rounded-circle" src="{{ .Params.image }}" alt="{{ .Params.first_name }} {{ .Params.last_name }}" /></div>
-              <div class="info">
-                  <p class="name"><a href="https://github.com/{{ .Params.github_handle }}">{{ .Params.first_name }} {{ .Params.last_name }}</a></p>
-                  <p class="position">{{ .Content }}</p>
+    <h2>Imperdiet sed euismod nisi:</h2>
+    <div class="grid three">
+      {{ $contributors := .Site.GetPage "/contributors" }}
+      {{ range $contributors.Resources }}
+        <div class="bio">
+            <div class="image"><img class="rounded-circle" src="{{ .Params.image }}" alt="{{ .Params.first_name }} {{ .Params.last_name }}" /></div>
+            <div class="info">
+                <p class="name"><a href="https://github.com/{{ .Params.github_handle }}">{{ .Params.first_name }} {{ .Params.last_name }}</a></p>
+                <p class="position">{{ .Content }}</p>
+            </div>
+        </div>
+        <button data-toggle="modal" data-target="#videoModal" data-video-id="NpEaa2P7qZI" data-title="Example Modal">Open Modal</button>
+        <div class="modal fade" id="videoModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+          <div class="modal-dialog" role="document">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h2 id="title"></h2>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                  <span aria-hidden="true">&times;</span>
+                </button>
               </div>
-          </div>
-          <button data-toggle="modal" data-target="#videoModal" data-video-id="NpEaa2P7qZI" data-title="Example Modal">Open Modal</button>
-          <div class="modal fade" id="videoModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
-            <div class="modal-dialog" role="document">
-              <div class="modal-content">
-                <div class="modal-header">
-                  <h2 id="title"></h2>
-                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                  </button>
-                </div>
-                <div class="modal-body">
-                  <div class="embed-responsive embed-responsive-16by9">
-                    <iframe id="featuredVideo" class="embed-responsive-item" src="" frameborder="0" allowfullscreen></iframe>
-                  </div>
+              <div class="modal-body">
+                <div class="embed-responsive embed-responsive-16by9">
+                  <iframe id="featuredVideo" class="embed-responsive-item" src="" frameborder="0" allowfullscreen></iframe>
                 </div>
               </div>
             </div>
           </div>
-          {{ end }}
-      </div>
-      <h3>Lorem Ipsum:</h3>
-      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor <a href="#">incididunt ut labore</a> et dolore magna aliqua.</p>
+        </div>
+        {{ end }}
+    </div>
   </div>
 </div>
