@@ -1,24 +1,32 @@
 /* Homepage Hero */
 .home-hero-bg {
+    background: url(/img/bg-hero-computer.jpg) center center no-repeat;
+    background-size: cover;
     overflow: hidden;
     position: relative;
-    
-    @include breakpoint(small-up) {
-        padding-top: 70px;
-    }
-    
-    .logo-overlay {
-        display: none;
 
-        @include breakpoint(medium-up) {
-            display: block;
-            height: auto;
-            left: 57%;
-            position: absolute;
-            top: 30px;
-            width: 600px;
-            z-index: 1;
-        }
+    &::before {
+        content: '';
+        background-image: linear-gradient(-45deg, transparent, transparent 34%, rgba(255, 255, 255, .88) 34%, rgba(255, 255, 255, .88) 66%, transparent 66%);
+        display: block;
+        height: 825px;
+        right: 50%;
+        transform: translateX(25%);
+        position: absolute;
+        width: 1800px;
+        z-index: 2;
+    }
+
+    &::after {
+        content: '';
+        background-image: linear-gradient(-45deg, rgba(255, 255, 255, .88), rgba(255, 255, 255, .88) 50%, transparent 50%);
+        display: block;
+        height: 30vw;
+        bottom: 0;
+        position: absolute;
+        right: 0;
+        width: 30vw;
+        z-index: 2;
     }
 }
 
@@ -26,8 +34,10 @@
     background-color: $mainblue;
     color: $white;
     .text-block {
-        max-width: 550px;
+        max-width: 500px;
         padding: 0px 0px 10px 0px;
+        position: relative;
+        z-index: 3;
         p {
             margin-bottom: 20px;
             font-size: 18px;
@@ -41,6 +51,7 @@
         background-color: transparent;
         color: $darkgrey;
         padding-bottom: 20px;
+        padding-top: 60px;
         position: relative;
         z-index: 2;
         h1 {
@@ -50,6 +61,9 @@
         p {
             color: $black;
             margin: 10px 0 30px;
+        }
+        .wrapper {
+            padding-bottom: 0;
         }
     }
     @include breakpoint(small) {
